@@ -1,0 +1,52 @@
+[package]
+name = "s2"
+version = "0.1.0"
+edition = "2021"
+description = "Simple Secrets — inject secrets into subprocesses without ambient environment exposure"
+license = "MIT"
+
+[[bin]]
+name = "s2"
+path = "src/main.rs"
+
+[dependencies]
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Secret memory management
+secrecy = { version = "0.10", features = ["serde"] }
+zeroize = { version = "1", features = ["derive"] }
+
+# Keychain
+keyring = { version = "3", features = ["apple-native"] }
+
+# Encryption
+age = { version = "0.11", features = ["armor"] }
+
+# Unix
+nix = { version = "0.29", features = ["process", "fs", "signal"] }
+
+# Multi-pattern replacement
+aho-corasick = "1"
+
+# Config
+toml = "0.8"
+serde = { version = "1", features = ["derive"] }
+
+# Error handling
+thiserror = "2"
+anyhow = "1"
+
+# Time
+chrono = "0.4"
+
+# Secure temp files
+tempfile = "3"
+
+# IO
+atty = "0.2"
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+tempfile = "3"
