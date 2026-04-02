@@ -50,6 +50,7 @@ pub fn run(config: &Config, key: String, file: Option<PathBuf>) -> Result<(), S2
         entries.push(ParsedEntry {
             key: key.clone(),
             value: SecretString::from(value),
+            source_uri: None,
         });
     }
 

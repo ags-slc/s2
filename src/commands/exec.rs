@@ -4,11 +4,15 @@ use std::path::PathBuf;
 use crate::audit;
 use crate::config::Config;
 use crate::error::S2Error;
+use crate::provider::cache::ProviderCache;
+use crate::provider::ProviderRegistry;
 use crate::store::SecretStore;
 
 /// Load secrets and exec the given command, replacing the current process.
 pub fn run(
     config: &Config,
+    registry: ProviderRegistry,
+    cache: ProviderCache,
     files: Vec<PathBuf>,
     keys: Vec<String>,
     profile: Option<String>,
@@ -18,8 +22,8 @@ pub fn run(
     let files = config.resolve_files(&files, &profile)?;
     let keys = config.resolve_keys(&keys, &profile);
 
-    let mut store = SecretStore::new();
-    store.load_files(&files)?;
+    let mut store = SecretStore::new(Some(registry), Some(cache));
+    store.load_files(&files, config)?;
 
     let env_map = store.to_env_map(&keys);
 
@@ -30,6 +34,9 @@ pub fn run(
         "exec",
         &format!("cmd={} keys=[{}]", cmd[0], key_names.join(",")),
     );
+
+    // Flush provider cache before execve (destructors won't run after process replacement)
+    store.flush_cache()?;
 
     // Build environment
     let mut env_vars: Vec<(String, String)> = if clean_env {

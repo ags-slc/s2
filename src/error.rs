@@ -41,6 +41,9 @@ pub enum S2Error {
     #[error("exec failed: {0}")]
     ExecFailed(String),
 
+    #[error("provider error: {0}")]
+    Provider(String),
+
     #[error(transparent)]
     Io(#[from] std::io::Error),
 }

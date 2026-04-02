@@ -8,6 +8,8 @@ use crate::error::S2Error;
 pub struct ParsedEntry {
     pub key: String,
     pub value: SecretString,
+    /// Set by provider resolution to the original URI string.
+    pub source_uri: Option<String>,
 }
 
 /// Parse a secrets file supporting both `export KEY=val` and `KEY=val` formats.
@@ -58,6 +60,7 @@ fn parse_line(line: &str) -> Option<ParsedEntry> {
     Some(ParsedEntry {
         key: key.to_string(),
         value: SecretString::from(value),
+        source_uri: None,
     })
 }
 
@@ -227,10 +230,12 @@ mod tests {
             ParsedEntry {
                 key: "SIMPLE".to_string(),
                 value: SecretString::from("value".to_string()),
+                source_uri: None,
             },
             ParsedEntry {
                 key: "QUOTED".to_string(),
                 value: SecretString::from("has spaces".to_string()),
+                source_uri: None,
             },
         ];
         let serialized = serialize_entries(&entries);

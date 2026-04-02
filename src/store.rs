@@ -7,27 +7,39 @@ use crate::crypto;
 use crate::error::S2Error;
 use crate::parser;
 use crate::permissions;
+use crate::provider::cache::ProviderCache;
+use crate::provider::ProviderRegistry;
 
 /// Metadata for a loaded secret.
 pub struct SecretEntry {
     pub value: SecretString,
     pub source_file: PathBuf,
+    /// If this value was resolved from a provider URI, stores the original URI.
+    pub source_uri: Option<String>,
 }
 
 /// In-memory store for loaded secrets. Values are zeroized on drop via SecretString.
 pub struct SecretStore {
     secrets: HashMap<String, SecretEntry>,
+    registry: Option<ProviderRegistry>,
+    cache: Option<ProviderCache>,
 }
 
 impl SecretStore {
-    pub fn new() -> Self {
+    pub fn new(
+        registry: Option<ProviderRegistry>,
+        cache: Option<ProviderCache>,
+    ) -> Self {
         Self {
             secrets: HashMap::new(),
+            registry,
+            cache,
         }
     }
 
     /// Load secrets from a file. Automatically detects and decrypts age-encrypted files.
-    pub fn load_file(&mut self, path: &Path) -> Result<(), S2Error> {
+    /// If a provider registry is present, resolves any provider URI references.
+    pub fn load_file(&mut self, path: &Path, config: &crate::config::Config) -> Result<(), S2Error> {
         let canonical = path
             .canonicalize()
             .map_err(|_| S2Error::FileNotFound(path.to_path_buf()))?;
@@ -47,13 +59,20 @@ impl SecretStore {
             })?
         };
 
-        let entries = parser::parse_file(&canonical, &content)?;
+        let mut entries = parser::parse_file(&canonical, &content)?;
+
+        // Resolve provider URI references if we have a registry
+        if let (Some(registry), Some(cache)) = (&self.registry, &mut self.cache) {
+            entries = crate::provider::resolve_entries(entries, registry, cache, config)?;
+        }
+
         for entry in entries {
             self.secrets.insert(
                 entry.key,
                 SecretEntry {
                     value: entry.value,
                     source_file: canonical.clone(),
+                    source_uri: entry.source_uri,
                 },
             );
         }
@@ -62,9 +81,20 @@ impl SecretStore {
     }
 
     /// Load multiple files.
-    pub fn load_files(&mut self, paths: &[PathBuf]) -> Result<(), S2Error> {
+    pub fn load_files(&mut self, paths: &[PathBuf], config: &crate::config::Config) -> Result<(), S2Error> {
         for path in paths {
-            self.load_file(path)?;
+            self.load_file(path, config)?;
+        }
+        Ok(())
+    }
+
+    /// Flush the provider cache to disk. Must be called before execve
+    /// since destructors won't run after process replacement.
+    pub fn flush_cache(&mut self) -> Result<(), S2Error> {
+        if let Some(ref cache) = self.cache {
+            if !cache.is_empty() {
+                cache.save()?;
+            }
         }
         Ok(())
     }

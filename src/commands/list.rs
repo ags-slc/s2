@@ -3,19 +3,23 @@ use std::path::PathBuf;
 use crate::audit;
 use crate::config::Config;
 use crate::error::S2Error;
+use crate::provider::cache::ProviderCache;
+use crate::provider::ProviderRegistry;
 use crate::store::SecretStore;
 
 /// List secret key names, source files, and file modification times.
 /// Never shows values.
 pub fn run(
     config: &Config,
+    registry: ProviderRegistry,
+    cache: ProviderCache,
     files: Vec<PathBuf>,
     profile: Option<String>,
 ) -> Result<(), S2Error> {
     let files = config.resolve_files(&files, &profile)?;
 
-    let mut store = SecretStore::new();
-    store.load_files(&files)?;
+    let mut store = SecretStore::new(Some(registry), Some(cache));
+    store.load_files(&files, config)?;
 
     audit::log_access(config, "list", &format!("files={}", files.len()));
 
@@ -30,7 +34,11 @@ pub fn run(
 
     for (key, entry) in &entries {
         let source = entry.source_file.display();
-        println!("{:<width$}  {}", key, source, width = max_key);
+        if let Some(ref uri) = entry.source_uri {
+            println!("{:<width$}  {}  ({})", key, source, uri, width = max_key);
+        } else {
+            println!("{:<width$}  {}", key, source, width = max_key);
+        }
     }
 
     Ok(())

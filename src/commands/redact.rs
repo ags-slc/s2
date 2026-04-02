@@ -6,19 +6,23 @@ use secrecy::ExposeSecret;
 
 use crate::config::Config;
 use crate::error::S2Error;
+use crate::provider::cache::ProviderCache;
+use crate::provider::ProviderRegistry;
 use crate::store::SecretStore;
 
 /// Stream stdin to stdout, replacing any secret values with [REDACTED].
 /// Uses Aho-Corasick for efficient multi-pattern matching.
 pub fn run(
     config: &Config,
+    registry: ProviderRegistry,
+    cache: ProviderCache,
     files: Vec<PathBuf>,
     profile: Option<String>,
 ) -> Result<(), S2Error> {
     let files = config.resolve_files(&files, &profile)?;
 
-    let mut store = SecretStore::new();
-    store.load_files(&files)?;
+    let mut store = SecretStore::new(Some(registry), Some(cache));
+    store.load_files(&files, config)?;
 
     // Build patterns from secret values (only non-empty values)
     let patterns: Vec<String> = store

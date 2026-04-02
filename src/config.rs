@@ -15,6 +15,29 @@ pub struct Config {
 
     #[serde(default)]
     pub profiles: HashMap<String, Profile>,
+
+    /// Global default TTL for provider-resolved secrets, in seconds.
+    #[serde(default = "default_provider_ttl")]
+    pub provider_ttl_seconds: u64,
+
+    /// Per-provider configuration.
+    #[serde(default)]
+    pub providers: HashMap<String, ProviderConfig>,
+}
+
+fn default_provider_ttl() -> u64 {
+    3600
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ProviderConfig {
+    /// TTL override for this provider, in seconds.
+    #[serde(default)]
+    pub ttl_seconds: Option<u64>,
+
+    /// Provider-specific settings (region, address, etc.).
+    #[serde(flatten)]
+    pub settings: HashMap<String, toml::Value>,
 }
 
 #[derive(Debug, Deserialize)]

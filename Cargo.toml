@@ -38,13 +38,27 @@ thiserror = "2"
 anyhow = "1"
 
 # Time
-chrono = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
 
 # Secure temp files
 tempfile = "3"
 
 # IO
 atty = "0.2"
+
+# Provider: AWS SSM (optional)
+aws-config = { version = "1", optional = true }
+aws-sdk-ssm = { version = "1", optional = true }
+tokio = { version = "1", features = ["rt"], optional = true }
+
+# Provider: Vault (optional)
+reqwest = { version = "0.12", features = ["blocking", "json"], optional = true }
+serde_json = { version = "1", optional = true }
+
+[features]
+default = []
+provider-ssm = ["dep:aws-config", "dep:aws-sdk-ssm", "dep:tokio"]
+provider-vault = ["dep:reqwest", "dep:serde_json"]
 
 [dev-dependencies]
 assert_cmd = "2"
