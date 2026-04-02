@@ -128,3 +128,19 @@ PATTERN='foo$bar'
 
 # Comments and blank lines are skipped
 ```
+
+## Similar Tools
+
+| Tool | Description | Differentiator |
+|------|-------------|----------------|
+| [Teller](https://github.com/tellerops/teller) | Multi-provider secret injection via `teller run`. CNCF project, now archived. | Aggregates external backends; no local encrypted store. |
+| [SOPS](https://github.com/getsops/sops) | Encrypts structured files at rest (age/PGP/KMS). Has `sops exec-env`. | File-format-centric (YAML/JSON field-level encryption), not a dedicated exec wrapper. |
+| [Chamber](https://github.com/segmentio/chamber) | `chamber exec svc -- cmd` injects secrets from AWS SSM Parameter Store. | AWS-only backend. |
+| [envconsul](https://github.com/hashicorp/envconsul) | Subprocess injection from Consul KV and Vault. | Locked to HashiCorp ecosystem. |
+| [envchain](https://github.com/sorah/envchain) | Stores secrets in system keychain, injects via `envchain ns cmd`. | No encrypted files, no config profiles, no redact. |
+| [Infisical](https://github.com/Infisical/infisical) | Full platform (server + dashboard + CLI) with `infisical run`. | Heavy; requires running a server. |
+| [dotenvx](https://github.com/dotenvx/dotenvx) | Encrypts `.env` files with ECIES. `dotenvx run -- cmd`. | Focused on `.env` format, not subprocess security model. |
+| [1Password CLI `op run`](https://developer.1password.com/docs/cli/reference/commands/run/) | Resolves `op://` references, injects into subprocess. | Proprietary, single-backend (1Password). |
+| [Doppler CLI](https://github.com/DopplerHQ/cli) | `doppler run -- cmd` injects from Doppler cloud. | SaaS-only, not local-first. |
+
+**Where s2 differs**: local-first encrypted store + `execve` process replacement (not child spawn) + `secrecy`/`zeroize` memory safety + 0600 enforcement + stream redaction. Most alternatives are either locked to a single backend, require a running server, or don't address the full threat surface (memory, process listing, parent shell leakage).
