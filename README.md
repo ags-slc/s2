@@ -35,17 +35,19 @@ cargo install --path .      # from source
 # Create a secret file
 s2 init ~/.secrets
 
-# Add a secret (reads value from stdin, never from CLI args)
-echo "my-token" | s2 set KUBECONFIG_TOKEN -f ~/.secrets
+# Add secrets (reads values from stdin, never from CLI args)
+echo "AKIA..." | s2 set AWS_SECRET_ACCESS_KEY -f ~/.secrets
 
-# Run a command with secrets injected
+# Run any command with secrets injected
+s2 exec -f ~/.secrets -- aws s3 ls
+s2 exec -f ~/.secrets -- terraform apply
 s2 exec -f ~/.secrets -- kubectl get pods
 
 # List available keys (never shows values)
 s2 list -f ~/.secrets
 
 # Check if required keys exist
-s2 check KUBECONFIG_TOKEN API_KEY -f ~/.secrets
+s2 check AWS_SECRET_ACCESS_KEY -f ~/.secrets
 
 # Encrypt the file at rest
 s2 encrypt ~/.secrets
@@ -80,9 +82,9 @@ Create `~/.config/s2/config.toml`:
 default_files = ["~/.secrets"]
 audit_log = "~/.config/s2/audit.log"
 
-[profiles.k8s]
+[profiles.aws]
 files = ["~/.secrets"]
-keys = ["KUBECONFIG_TOKEN"]
+keys = ["AWS_SECRET_ACCESS_KEY"]
 
 [profiles.deploy]
 files = ["~/.secrets", ".env.local"]
@@ -91,7 +93,7 @@ files = ["~/.secrets", ".env.local"]
 Then use profiles:
 
 ```bash
-s2 exec -p k8s -- kubectl get pods
+s2 exec -p aws -- terraform apply
 ```
 
 ## Security Model
