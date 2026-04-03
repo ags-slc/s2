@@ -37,6 +37,18 @@ cargo fmt --check                  # format check
 - **Linux** (x86_64, aarch64) — uses D-Bus Secret Service via `keyring` crate with `linux-native` feature; file-based fallback for headless servers
 - Linux builds require `libdbus-1-dev` and `pkg-config` to compile
 
+## PR Requirements
+
+Every PR must update relevant documentation. This is a merge-blocking requirement.
+
+- **New/changed commands or flags** → update `README.md` (Commands table, Quick Start) and `CLAUDE.md` (Key Conventions)
+- **Architecture or design changes** → update `ARCHITECTURE.md`
+- **New config options** → update `README.md` (Configuration section)
+- **Security model changes** → update `README.md` (Security Model) and `ARCHITECTURE.md` (Security Architecture)
+- **Platform changes** → update `CLAUDE.md` (Platform Support), `install.sh`, and release workflow
+
+If a PR changes behavior but not docs, it is not ready to merge.
+
 ## Release
 
 Tag `vX.Y.Z` and push to trigger the release workflow. Builds macOS arm64 + x86_64 with `--all-features`, creates a GitHub Release, and publishes to crates.io.
