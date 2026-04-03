@@ -8,6 +8,7 @@ use crate::provider::{SecretProvider, SecretUri};
 /// URI format: ssm:///parameter/path
 pub struct SsmProvider {
     region: Option<String>,
+    profile: Option<String>,
 }
 
 impl SsmProvider {
@@ -16,7 +17,11 @@ impl SsmProvider {
             .and_then(|c| c.settings.get("region"))
             .and_then(|v| v.as_str())
             .map(String::from);
-        Ok(Self { region })
+        let profile = config
+            .and_then(|c| c.settings.get("profile"))
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        Ok(Self { region, profile })
     }
 }
 
@@ -37,6 +42,9 @@ impl SecretProvider for SsmProvider {
 
         rt.block_on(async {
             let mut config_loader = aws_config::defaults(aws_config::BehaviorVersion::latest());
+            if let Some(ref profile) = self.profile {
+                config_loader = config_loader.profile_name(profile);
+            }
             if let Some(ref region) = self.region {
                 config_loader =
                     config_loader.region(aws_config::Region::new(region.clone()));
