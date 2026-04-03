@@ -15,7 +15,11 @@ Inject secrets into subprocess environments without ambient shell exposure. Secr
 ## Install
 
 ```bash
+# All users (/usr/local/bin, may prompt for sudo)
 curl -fsSL https://raw.githubusercontent.com/ags-slc/s2/main/install.sh | sh
+
+# Single user (~/.local/bin)
+curl -fsSL https://raw.githubusercontent.com/ags-slc/s2/main/install.sh | sh -s -- --user
 ```
 
 Or with Rust:

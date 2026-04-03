@@ -2,7 +2,15 @@
 set -eu
 
 REPO="ags-slc/s2"
-INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
+
+# Install location: override with INSTALL_DIR, or pass --user for ~/.local/bin
+if [ -n "${INSTALL_DIR:-}" ]; then
+  : # user override, keep it
+elif [ "${1:-}" = "--user" ]; then
+  INSTALL_DIR="$HOME/.local/bin"
+else
+  INSTALL_DIR="/usr/local/bin"
+fi
 
 # Detect OS
 OS="$(uname -s)"
