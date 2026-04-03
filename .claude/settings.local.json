@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(git add:*)",
+      "Bash(git commit -m ':*)",
+      "Bash(rustc --version)",
+      "Bash(cargo --version)",
+      "Bash(cargo metadata:*)",
+      "Bash(cargo tree:*)",
+      "Bash(chmod +x:*)",
+      "Bash(curl -fsSL -o /dev/null -w '%{http_code}' https://crates.io/api/v1/crates/__TRACKED_VAR__)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git tag:*)",
+      "Bash(gh run:*)",
+      "Bash(INSTALL_DIR=\"$HOME/.local/bin\" sh:*)",
+      "Bash(~/.local/bin/s2 --version)",
+      "Bash(~/.local/bin/s2 --help)",
+      "Bash(cargo run:*)",
+      "Bash(git reset:*)",
+      "Bash(xargs git:*)",
+      "Bash(git checkout:*)",
+      "Bash(git rebase:*)",
+      "Bash(git rm:*)",
+      "Bash(gh pr:*)"
+    ]
+  }
+}

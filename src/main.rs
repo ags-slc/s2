@@ -56,7 +56,9 @@ fn main() {
             cmd,
         } => {
             let (registry, cache) = init_providers(&config);
-            commands::exec::run(&config, registry, cache, files, keys, profile, clean_env, cmd)
+            commands::exec::run(
+                &config, registry, cache, files, keys, profile, clean_env, cmd,
+            )
         }
 
         Command::List { files, profile } => {

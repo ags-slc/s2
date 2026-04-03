@@ -88,20 +88,18 @@ fn parse_double_quoted(s: &str) -> Option<String> {
         match chars.next() {
             None => return None, // unterminated
             Some('"') => break,  // closing quote
-            Some('\\') => {
-                match chars.next() {
-                    Some('n') => result.push('\n'),
-                    Some('t') => result.push('\t'),
-                    Some('\\') => result.push('\\'),
-                    Some('"') => result.push('"'),
-                    Some('$') => result.push('$'),
-                    Some(c) => {
-                        result.push('\\');
-                        result.push(c);
-                    }
-                    None => return None,
+            Some('\\') => match chars.next() {
+                Some('n') => result.push('\n'),
+                Some('t') => result.push('\t'),
+                Some('\\') => result.push('\\'),
+                Some('"') => result.push('"'),
+                Some('$') => result.push('$'),
+                Some(c) => {
+                    result.push('\\');
+                    result.push(c);
                 }
-            }
+                None => return None,
+            },
             Some(c) => result.push(c),
         }
     }
@@ -111,7 +109,7 @@ fn parse_double_quoted(s: &str) -> Option<String> {
 
 fn parse_single_quoted(s: &str) -> Option<String> {
     let s = &s[1..]; // skip opening quote
-    // Find closing single quote — no escape processing
+                     // Find closing single quote — no escape processing
     let end = s.find('\'')?;
     Some(s[..end].to_string())
 }

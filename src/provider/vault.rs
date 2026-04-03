@@ -32,7 +32,7 @@ impl VaultProvider {
         let token_path = config
             .and_then(|c| c.settings.get("token_path"))
             .and_then(|v| v.as_str())
-            .map(|p| expand_tilde(p))
+            .map(expand_tilde)
             .unwrap_or_else(|| expand_tilde("~/.vault-token"));
 
         Ok(Self {
@@ -104,17 +104,17 @@ impl SecretProvider for VaultProvider {
             .get("data")
             .and_then(|d| d.get("data"))
             .ok_or_else(|| {
-                S2Error::Provider(format!("Vault: unexpected response structure for {}", uri.raw))
+                S2Error::Provider(format!(
+                    "Vault: unexpected response structure for {}",
+                    uri.raw
+                ))
             })?;
 
         let value = if let Some(ref field) = uri.fragment {
             data.get(field)
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| {
-                    S2Error::Provider(format!(
-                        "Vault: field '{}' not found in {}",
-                        field, uri.raw
-                    ))
+                    S2Error::Provider(format!("Vault: field '{}' not found in {}", field, uri.raw))
                 })?
                 .to_string()
         } else {

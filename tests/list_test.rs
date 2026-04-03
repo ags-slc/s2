@@ -4,11 +4,7 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 
 fn fixture_path(name: &str) -> String {
-    format!(
-        "{}/tests/fixtures/{}",
-        env!("CARGO_MANIFEST_DIR"),
-        name
-    )
+    format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), name)
 }
 
 fn setup_fixture(name: &str) {

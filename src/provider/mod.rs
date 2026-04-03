@@ -20,6 +20,7 @@ use cache::{CacheStatus, ProviderCache};
 
 /// A parsed URI reference found in a secret value.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct SecretUri {
     pub scheme: String,
     pub authority: Option<String>,
@@ -29,6 +30,7 @@ pub struct SecretUri {
 }
 
 /// Trait that all secret providers implement.
+#[allow(dead_code)]
 pub trait SecretProvider: Send + Sync {
     /// The URI scheme this provider handles (e.g., "ssm", "vault", "env").
     fn scheme(&self) -> &str;
@@ -47,7 +49,9 @@ pub struct ProviderRegistry {
 
 impl ProviderRegistry {
     /// Build registry from config. Only includes providers whose feature flags are enabled.
-    pub fn from_config(provider_configs: &HashMap<String, ProviderConfig>) -> Result<Self, S2Error> {
+    pub fn from_config(
+        provider_configs: &HashMap<String, ProviderConfig>,
+    ) -> Result<Self, S2Error> {
         let mut providers = HashMap::<String, Box<dyn SecretProvider>>::new();
 
         // env:// is always available

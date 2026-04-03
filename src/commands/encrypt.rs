@@ -32,6 +32,9 @@ pub fn run(path: PathBuf) -> Result<(), S2Error> {
     std::fs::write(&path, &encrypted)?;
     permissions::set_secure_permissions(&path)?;
 
-    eprintln!("Encrypted: {} (passphrase stored in keychain)", path.display());
+    eprintln!(
+        "Encrypted: {} (passphrase stored in keychain)",
+        path.display()
+    );
     Ok(())
 }

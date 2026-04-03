@@ -9,6 +9,7 @@ use crate::provider::ProviderRegistry;
 use crate::store::SecretStore;
 
 /// Load secrets and exec the given command, replacing the current process.
+#[allow(clippy::too_many_arguments)]
 pub fn run(
     config: &Config,
     registry: ProviderRegistry,
@@ -98,8 +99,5 @@ fn resolve_program(name: &str, env_vars: &[(String, String)]) -> Result<PathBuf,
         }
     }
 
-    Err(S2Error::ExecFailed(format!(
-        "command not found: {}",
-        name
-    )))
+    Err(S2Error::ExecFailed(format!("command not found: {}", name)))
 }

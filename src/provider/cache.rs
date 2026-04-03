@@ -48,8 +48,8 @@ impl ProviderCache {
         let encrypted = std::fs::read(&path)?;
         let passphrase = keychain::get_passphrase(CACHE_KEYCHAIN_ID)?;
         let plaintext = crypto::decrypt_with_passphrase(&encrypted, &passphrase)?;
-        let cache: ProviderCache =
-            toml::from_str(&plaintext).map_err(|e| S2Error::Config(format!("corrupt provider cache: {}", e)))?;
+        let cache: ProviderCache = toml::from_str(&plaintext)
+            .map_err(|e| S2Error::Config(format!("corrupt provider cache: {}", e)))?;
         Ok(cache)
     }
 
@@ -61,8 +61,8 @@ impl ProviderCache {
             std::fs::create_dir_all(parent)?;
         }
 
-        let plaintext =
-            toml::to_string_pretty(self).map_err(|e| S2Error::Config(format!("cache serialization: {}", e)))?;
+        let plaintext = toml::to_string_pretty(self)
+            .map_err(|e| S2Error::Config(format!("cache serialization: {}", e)))?;
 
         let passphrase = match keychain::get_passphrase(CACHE_KEYCHAIN_ID) {
             Ok(p) => p,
@@ -76,10 +76,10 @@ impl ProviderCache {
         let encrypted = crypto::encrypt_with_passphrase(plaintext.as_bytes(), &passphrase)?;
 
         // Atomic write via tempfile
-        let tmp = tempfile::NamedTempFile::new_in(path.parent().unwrap_or(std::path::Path::new("/tmp")))?;
+        let tmp =
+            tempfile::NamedTempFile::new_in(path.parent().unwrap_or(std::path::Path::new("/tmp")))?;
         std::io::Write::write_all(&mut &tmp, &encrypted)?;
-        tmp.persist(&path)
-            .map_err(|e| S2Error::Io(e.error))?;
+        tmp.persist(&path).map_err(|e| S2Error::Io(e.error))?;
 
         permissions::set_secure_permissions(&path)?;
         Ok(())

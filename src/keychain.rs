@@ -21,16 +21,6 @@ pub fn get_passphrase(file_key: &str) -> Result<String, S2Error> {
         .map_err(|e| S2Error::Keychain(format!("passphrase not found in keychain: {}", e)))
 }
 
-/// Delete a passphrase from the system keychain.
-pub fn delete_passphrase(file_key: &str) -> Result<(), S2Error> {
-    let entry = keyring::Entry::new(SERVICE_NAME, file_key)
-        .map_err(|e| S2Error::Keychain(e.to_string()))?;
-    entry
-        .delete_credential()
-        .map_err(|e| S2Error::Keychain(format!("failed to delete passphrase: {}", e)))?;
-    Ok(())
-}
-
 /// Generate a canonical key for a file path (used as keychain username).
 pub fn file_key(path: &std::path::Path) -> String {
     // Use the canonical absolute path as the key

@@ -17,9 +17,6 @@ pub enum S2Error {
         message: String,
     },
 
-    #[error("key not found: {0}")]
-    KeyNotFound(String),
-
     #[error("no files specified and no default_files in config")]
     NoFiles,
 

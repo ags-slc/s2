@@ -26,9 +26,7 @@ impl SecretProvider for EnvProvider {
 
         std::env::var(var_name)
             .map(SecretString::from)
-            .map_err(|_| {
-                S2Error::Provider(format!("environment variable '{}' not set", var_name))
-            })
+            .map_err(|_| S2Error::Provider(format!("environment variable '{}' not set", var_name)))
     }
 }
 

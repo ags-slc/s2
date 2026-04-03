@@ -46,8 +46,7 @@ impl SecretProvider for SsmProvider {
                 config_loader = config_loader.profile_name(profile);
             }
             if let Some(ref region) = self.region {
-                config_loader =
-                    config_loader.region(aws_config::Region::new(region.clone()));
+                config_loader = config_loader.region(aws_config::Region::new(region.clone()));
             }
             let aws_config = config_loader.load().await;
             let client = aws_sdk_ssm::Client::new(&aws_config);
@@ -63,9 +62,7 @@ impl SecretProvider for SsmProvider {
             let value = result
                 .parameter()
                 .and_then(|p| p.value())
-                .ok_or_else(|| {
-                    S2Error::Provider(format!("SSM: no value for {}", uri.path))
-                })?;
+                .ok_or_else(|| S2Error::Provider(format!("SSM: no value for {}", uri.path)))?;
 
             Ok(SecretString::from(value.to_string()))
         })

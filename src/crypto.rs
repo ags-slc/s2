@@ -25,7 +25,7 @@ pub fn decrypt_file_content(path: &Path, encrypted: &[u8]) -> Result<String, S2E
 
 /// Decrypt age-encrypted bytes with a given passphrase.
 pub fn decrypt_with_passphrase(encrypted: &[u8], passphrase: &str) -> Result<String, S2Error> {
-    let decryptor = age::Decryptor::new(&encrypted[..])
+    let decryptor = age::Decryptor::new(encrypted)
         .map_err(|e| S2Error::Encryption(format!("invalid age file: {}", e)))?;
 
     let identity = age::scrypt::Identity::new(SecretString::from(passphrase.to_string()));
@@ -48,8 +48,9 @@ pub fn encrypt_with_passphrase(plaintext: &[u8], passphrase: &str) -> Result<Vec
     let encryptor = age::Encryptor::with_user_passphrase(secret);
 
     let mut encrypted = Vec::new();
-    let armor = age::armor::ArmoredWriter::wrap_output(&mut encrypted, age::armor::Format::AsciiArmor)
-        .map_err(|e| S2Error::Encryption(format!("failed to create armor writer: {}", e)))?;
+    let armor =
+        age::armor::ArmoredWriter::wrap_output(&mut encrypted, age::armor::Format::AsciiArmor)
+            .map_err(|e| S2Error::Encryption(format!("failed to create armor writer: {}", e)))?;
 
     let mut writer = encryptor
         .wrap_output(armor)
@@ -74,7 +75,8 @@ pub fn encrypt_with_passphrase(plaintext: &[u8], passphrase: &str) -> Result<Vec
 pub fn generate_passphrase() -> String {
     let mut bytes = [0u8; 32];
     let mut rng = std::fs::File::open("/dev/urandom").expect("failed to open /dev/urandom");
-    rng.read_exact(&mut bytes).expect("failed to read random bytes");
+    rng.read_exact(&mut bytes)
+        .expect("failed to read random bytes");
 
     const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
     bytes

@@ -155,11 +155,7 @@ impl Config {
 
     /// Resolve key filter for a command.
     /// Priority: CLI -k flags > profile keys > empty (all keys)
-    pub fn resolve_keys(
-        &self,
-        cli_keys: &[String],
-        profile_name: &Option<String>,
-    ) -> Vec<String> {
+    pub fn resolve_keys(&self, cli_keys: &[String], profile_name: &Option<String>) -> Vec<String> {
         if !cli_keys.is_empty() {
             return cli_keys.to_vec();
         }

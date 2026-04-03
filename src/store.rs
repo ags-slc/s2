@@ -26,10 +26,7 @@ pub struct SecretStore {
 }
 
 impl SecretStore {
-    pub fn new(
-        registry: Option<ProviderRegistry>,
-        cache: Option<ProviderCache>,
-    ) -> Self {
+    pub fn new(registry: Option<ProviderRegistry>, cache: Option<ProviderCache>) -> Self {
         Self {
             secrets: HashMap::new(),
             registry,
@@ -39,7 +36,11 @@ impl SecretStore {
 
     /// Load secrets from a file. Automatically detects and decrypts age-encrypted files.
     /// If a provider registry is present, resolves any provider URI references.
-    pub fn load_file(&mut self, path: &Path, config: &crate::config::Config) -> Result<(), S2Error> {
+    pub fn load_file(
+        &mut self,
+        path: &Path,
+        config: &crate::config::Config,
+    ) -> Result<(), S2Error> {
         let canonical = path
             .canonicalize()
             .map_err(|_| S2Error::FileNotFound(path.to_path_buf()))?;
@@ -50,12 +51,10 @@ impl SecretStore {
         let content = if crypto::is_age_encrypted(&raw_bytes) {
             crypto::decrypt_file_content(&canonical, &raw_bytes)?
         } else {
-            String::from_utf8(raw_bytes).map_err(|e| {
-                S2Error::ParseError {
-                    path: canonical.clone(),
-                    line: 0,
-                    message: format!("invalid UTF-8: {}", e),
-                }
+            String::from_utf8(raw_bytes).map_err(|e| S2Error::ParseError {
+                path: canonical.clone(),
+                line: 0,
+                message: format!("invalid UTF-8: {}", e),
             })?
         };
 
@@ -81,7 +80,11 @@ impl SecretStore {
     }
 
     /// Load multiple files.
-    pub fn load_files(&mut self, paths: &[PathBuf], config: &crate::config::Config) -> Result<(), S2Error> {
+    pub fn load_files(
+        &mut self,
+        paths: &[PathBuf],
+        config: &crate::config::Config,
+    ) -> Result<(), S2Error> {
         for path in paths {
             self.load_file(path, config)?;
         }
@@ -99,31 +102,15 @@ impl SecretStore {
         Ok(())
     }
 
-    /// Get all key names.
-    pub fn keys(&self) -> Vec<&str> {
-        let mut keys: Vec<&str> = self.secrets.keys().map(|s| s.as_str()).collect();
-        keys.sort();
-        keys
-    }
-
     /// Check if a key exists.
     pub fn contains(&self, key: &str) -> bool {
         self.secrets.contains_key(key)
     }
 
-    /// Get a secret entry by key.
-    pub fn get(&self, key: &str) -> Option<&SecretEntry> {
-        self.secrets.get(key)
-    }
-
     /// Get all entries, optionally filtered by key list.
     pub fn entries(&self, filter_keys: &[String]) -> Vec<(&str, &SecretEntry)> {
         if filter_keys.is_empty() {
-            let mut entries: Vec<_> = self
-                .secrets
-                .iter()
-                .map(|(k, v)| (k.as_str(), v))
-                .collect();
+            let mut entries: Vec<_> = self.secrets.iter().map(|(k, v)| (k.as_str(), v)).collect();
             entries.sort_by_key(|(k, _)| *k);
             entries
         } else {

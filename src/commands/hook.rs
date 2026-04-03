@@ -150,7 +150,10 @@ mod tests {
 
     #[test]
     fn test_extract_root_command_multiple_env() {
-        assert_eq!(extract_root_command("FOO=1 BAR=2 kubectl get pods"), "kubectl");
+        assert_eq!(
+            extract_root_command("FOO=1 BAR=2 kubectl get pods"),
+            "kubectl"
+        );
     }
 
     #[test]
@@ -183,15 +186,13 @@ mod tests {
 
     #[test]
     fn test_build_wrapped_with_files() {
-        let result =
-            build_wrapped_command("kubectl get pods", &["-f".into(), "~/.secrets".into()]);
+        let result = build_wrapped_command("kubectl get pods", &["-f".into(), "~/.secrets".into()]);
         assert_eq!(result, "s2 exec -f ~/.secrets -- kubectl get pods");
     }
 
     #[test]
     fn test_build_wrapped_complex() {
-        let result =
-            build_wrapped_command("aws s3 ls | grep bucket", &["-p".into(), "aws".into()]);
+        let result = build_wrapped_command("aws s3 ls | grep bucket", &["-p".into(), "aws".into()]);
         assert_eq!(
             result,
             "s2 exec -p aws -- bash -c 'aws s3 ls | grep bucket'"
@@ -200,8 +201,10 @@ mod tests {
 
     #[test]
     fn test_build_wrapped_complex_with_quotes() {
-        let result =
-            build_wrapped_command("echo 'hello' | aws s3 cp - s3://b", &["-p".into(), "aws".into()]);
+        let result = build_wrapped_command(
+            "echo 'hello' | aws s3 cp - s3://b",
+            &["-p".into(), "aws".into()],
+        );
         assert_eq!(
             result,
             "s2 exec -p aws -- bash -c 'echo '\\''hello'\\'' | aws s3 cp - s3://b'"
