@@ -1,4 +1,14 @@
-# s2 — Simple Secrets
+```
+       .-------.
+      /         \
+     |           |
+  .--+-----------+--.
+  |                  |
+  |      //S2        |
+  |  Simple Secrets  |
+  |                  |
+  '------------------'
+```
 
 Inject secrets into subprocess environments without ambient shell exposure. Secrets never enter your parent shell, never appear in `env`/`printenv`, and are encrypted at rest with keychain-backed passphrases.
 
