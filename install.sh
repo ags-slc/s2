@@ -64,8 +64,11 @@ fi
 
 # Extract and install
 tar xzf "$TARBALL"
-if [ -w "$INSTALL_DIR" ] || mkdir -p "$INSTALL_DIR" 2>/dev/null; then
-  install -m 755 s2 "$INSTALL_DIR/s2"
+
+# Try direct install first; fall back to sudo if it fails
+# ([ -w ] is unreliable on macOS due to SIP)
+if install -m 755 s2 "$INSTALL_DIR/s2" 2>/dev/null; then
+  :
 else
   echo "Installing to ${INSTALL_DIR} requires sudo..."
   sudo install -d "$INSTALL_DIR"
