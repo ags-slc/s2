@@ -29,6 +29,8 @@ cargo install s2-simple-secrets   # from crates.io
 cargo install --path .      # from source
 ```
 
+**Windows:** use [WSL](https://learn.microsoft.com/en-us/windows/wsl/install) and follow the Linux instructions.
+
 ## Quick Start
 
 ```bash
