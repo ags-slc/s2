@@ -75,7 +75,7 @@ fn main() {
             commands::check::run(&config, registry, cache, keys, files, profile)
         }
 
-        Command::Init { path } => commands::init::run(path),
+        Command::Init { path, no_encrypt } => commands::init::run(path, no_encrypt),
 
         Command::Set { key, file } => commands::set::run(&config, key, file),
 

@@ -63,10 +63,14 @@ pub enum Command {
         profile: Option<String>,
     },
 
-    /// Create a new secret file with secure permissions
+    /// Create a new secret file (encrypted by default)
     Init {
         /// Path for the new file (default: .env)
         path: Option<PathBuf>,
+
+        /// Create as plaintext instead of encrypted
+        #[arg(long = "no-encrypt")]
+        no_encrypt: bool,
     },
 
     /// Set a secret (reads value from stdin, NEVER from arguments)

@@ -10,7 +10,7 @@ fn test_init_creates_file() {
 
     Command::cargo_bin("s2")
         .unwrap()
-        .args(["init", path.to_str().unwrap()])
+        .args(["init", "--no-encrypt", path.to_str().unwrap()])
         .assert()
         .success()
         .stderr(predicate::str::contains("Created"));
@@ -28,7 +28,7 @@ fn test_init_refuses_existing() {
 
     Command::cargo_bin("s2")
         .unwrap()
-        .args(["init", path.to_str().unwrap()])
+        .args(["init", "--no-encrypt", path.to_str().unwrap()])
         .assert()
         .failure()
         .stderr(predicate::str::contains("already exists"));
@@ -42,7 +42,7 @@ fn test_set_and_unset() {
     // Init
     Command::cargo_bin("s2")
         .unwrap()
-        .args(["init", path.to_str().unwrap()])
+        .args(["init", "--no-encrypt", path.to_str().unwrap()])
         .assert()
         .success();
 
@@ -93,7 +93,7 @@ fn test_set_updates_existing() {
 
     Command::cargo_bin("s2")
         .unwrap()
-        .args(["init", path.to_str().unwrap()])
+        .args(["init", "--no-encrypt", path.to_str().unwrap()])
         .assert()
         .success();
 

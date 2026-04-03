@@ -1,10 +1,12 @@
 use std::path::PathBuf;
 
+use crate::crypto;
 use crate::error::S2Error;
+use crate::keychain;
 use crate::permissions;
 
-/// Create a new secret file with secure permissions and a header comment.
-pub fn run(path: Option<PathBuf>) -> Result<(), S2Error> {
+/// Create a new secret file with secure permissions, encrypted by default.
+pub fn run(path: Option<PathBuf>, no_encrypt: bool) -> Result<(), S2Error> {
     let path = path.unwrap_or_else(|| PathBuf::from(".env"));
 
     if path.exists() {
@@ -19,11 +21,25 @@ pub fn run(path: Option<PathBuf>) -> Result<(), S2Error> {
         }
     }
 
-    let header = "# Secrets file managed by s2\n# Format: KEY=value or export KEY=value\n# This file should be 0600 — s2 refuses to read group/world-readable files.\n\n";
+    let header = "# Secrets file managed by s2\n# Format: KEY=value or export KEY=value\n\n";
 
-    std::fs::write(&path, header)?;
-    permissions::set_secure_permissions(&path)?;
+    if no_encrypt {
+        std::fs::write(&path, header)?;
+        permissions::set_secure_permissions(&path)?;
+        eprintln!("Created {} (mode 0600, plaintext)", path.display());
+    } else {
+        let passphrase = crypto::generate_passphrase();
+        let key = keychain::file_key(&path.canonicalize().unwrap_or_else(|_| path.clone()));
+        keychain::store_passphrase(&key, &passphrase)?;
 
-    eprintln!("Created {} (mode 0600)", path.display());
+        let encrypted = crypto::encrypt_with_passphrase(header.as_bytes(), &passphrase)?;
+        std::fs::write(&path, &encrypted)?;
+        permissions::set_secure_permissions(&path)?;
+        eprintln!(
+            "Created {} (mode 0600, encrypted, passphrase stored in keychain)",
+            path.display()
+        );
+    }
+
     Ok(())
 }
