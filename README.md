@@ -5,7 +5,14 @@ Inject secrets into subprocess environments without ambient shell exposure. Secr
 ## Install
 
 ```bash
-cargo install --path .
+curl -fsSL https://raw.githubusercontent.com/ags-slc/s2/main/install.sh | sh
+```
+
+Or with Rust:
+
+```bash
+cargo install s2            # from crates.io
+cargo install --path .      # from source
 ```
 
 ## Quick Start

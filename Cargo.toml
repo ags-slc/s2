@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 description = "Simple Secrets — inject secrets into subprocesses without ambient environment exposure"
 license = "MIT"
+repository = "https://github.com/ags-slc/s2"
+homepage = "https://github.com/ags-slc/s2"
+keywords = ["secrets", "security", "cli", "encryption"]
+categories = ["command-line-utilities"]
 
 [[bin]]
 name = "s2"
@@ -59,6 +63,9 @@ serde_json = { version = "1", optional = true }
 default = []
 provider-ssm = ["dep:aws-config", "dep:aws-sdk-ssm", "dep:tokio"]
 provider-vault = ["dep:reqwest", "dep:serde_json"]
+
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/s2-{ target }.tar.gz"
 
 [dev-dependencies]
 assert_cmd = "2"
