@@ -56,7 +56,12 @@ fi
 
 # Extract and install
 tar xzf "$TARBALL"
-install -d "$INSTALL_DIR"
-install -m 755 s2 "$INSTALL_DIR/s2"
+if [ -w "$INSTALL_DIR" ] || mkdir -p "$INSTALL_DIR" 2>/dev/null; then
+  install -m 755 s2 "$INSTALL_DIR/s2"
+else
+  echo "Installing to ${INSTALL_DIR} requires sudo..."
+  sudo install -d "$INSTALL_DIR"
+  sudo install -m 755 s2 "$INSTALL_DIR/s2"
+fi
 
 echo "Installed s2 ${VERSION} to ${INSTALL_DIR}/s2"
