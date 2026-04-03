@@ -21,8 +21,8 @@ clap = { version = "4", features = ["derive"] }
 secrecy = { version = "0.10", features = ["serde"] }
 zeroize = { version = "1", features = ["derive"] }
 
-# Keychain
-keyring = { version = "3", features = ["apple-native"] }
+# Hashing (file-based keychain fallback)
+sha2 = "0.10"
 
 # Encryption
 age = { version = "0.11", features = ["armor"] }
@@ -68,6 +68,12 @@ provider-vault = ["dep:reqwest"]
 
 [package.metadata.binstall]
 pkg-url = "{ repo }/releases/download/v{ version }/s2-{ target }.tar.gz"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", features = ["linux-native"] }
 
 [dev-dependencies]
 assert_cmd = "2"

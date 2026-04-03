@@ -28,7 +28,14 @@ cargo fmt --check                  # format check
 - **File permissions are enforced** — s2 refuses to read files that aren't 0600.
 - **stdin-only for secret values** — `s2 set` reads from stdin, never CLI args.
 - **Encrypted by default** — `s2 init` creates encrypted files. `s2 set`/`s2 unset` transparently decrypt, modify, and re-encrypt. Pass `--no-encrypt` to init for plaintext.
+- **Keychain with file fallback** — passphrases stored in macOS Keychain or Linux Secret Service (D-Bus). On headless systems without a keyring, falls back to `~/.config/s2/keys/` with 0600 permissions.
 - **Feature flags**: `provider-ssm` (default), `provider-vault` (opt-in). SSM deps are heavy; Vault needs `reqwest`.
+
+## Platform Support
+
+- **macOS** (arm64, x86_64) — uses Apple Keychain via `keyring` crate with `apple-native` feature
+- **Linux** (x86_64, aarch64) — uses D-Bus Secret Service via `keyring` crate with `linux-native` feature; file-based fallback for headless servers
+- Linux builds require `libdbus-1-dev` and `pkg-config` to compile
 
 ## Release
 

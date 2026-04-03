@@ -12,20 +12,29 @@ else
   INSTALL_DIR="/usr/local/bin"
 fi
 
-# Detect OS
+# Detect OS and architecture
 OS="$(uname -s)"
-if [ "$OS" != "Darwin" ]; then
-  echo "Error: s2 currently only supports macOS (detected: $OS)" >&2
-  exit 1
-fi
-
-# Detect architecture
 ARCH="$(uname -m)"
-case "$ARCH" in
-  arm64)  TARGET="aarch64-apple-darwin" ;;
-  x86_64) TARGET="x86_64-apple-darwin" ;;
+
+case "$OS" in
+  Darwin)
+    case "$ARCH" in
+      arm64)  TARGET="aarch64-apple-darwin" ;;
+      x86_64) TARGET="x86_64-apple-darwin" ;;
+      *)      echo "Error: unsupported architecture: $ARCH" >&2; exit 1 ;;
+    esac
+    SHA_CMD="shasum -a 256"
+    ;;
+  Linux)
+    case "$ARCH" in
+      x86_64)  TARGET="x86_64-unknown-linux-gnu" ;;
+      aarch64) TARGET="aarch64-unknown-linux-gnu" ;;
+      *)       echo "Error: unsupported architecture: $ARCH" >&2; exit 1 ;;
+    esac
+    SHA_CMD="sha256sum"
+    ;;
   *)
-    echo "Error: unsupported architecture: $ARCH" >&2
+    echo "Error: unsupported OS: $OS" >&2
     exit 1
     ;;
 esac
@@ -54,7 +63,7 @@ curl -fsSL -o "${TMPDIR}/checksums.txt" "$CHECKSUMS_URL"
 echo "Verifying checksum..."
 cd "$TMPDIR"
 EXPECTED="$(grep "$TARBALL" checksums.txt | awk '{print $1}')"
-ACTUAL="$(shasum -a 256 "$TARBALL" | awk '{print $1}')"
+ACTUAL="$($SHA_CMD "$TARBALL" | awk '{print $1}')"
 if [ "$EXPECTED" != "$ACTUAL" ]; then
   echo "Error: checksum mismatch" >&2
   echo "  expected: $EXPECTED" >&2

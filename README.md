@@ -155,7 +155,7 @@ The agent runs `aws s3 ls` and s2 rewrites it to `s2 exec -p aws -- aws s3 ls`. 
 | `env`/`printenv` in parent shell | Secrets never loaded into parent — only in exec'd subprocess |
 | stdout/stderr | CLI never prints values; `SecretString` redacts Debug/Display |
 | Shell history | `set` reads from stdin, not args; `exec` args are the target command |
-| Files on disk | Encrypted at rest with keychain-backed passphrase; 0600 enforced |
+| Files on disk | Encrypted at rest with keychain-backed passphrase (file-based fallback on headless Linux); 0600 enforced |
 | `/proc/<pid>/environ` | `execvp` replaces process; `--clean-env` reduces surface |
 | Memory after use | `secrecy`/`zeroize` clear memory on drop |
 | Process listing (`ps`) | Values never in argv |
