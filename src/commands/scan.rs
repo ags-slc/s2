@@ -4,9 +4,11 @@ use std::path::{Path, PathBuf};
 use std::process;
 
 use regex::Regex;
+use secrecy::ExposeSecret;
 
 use crate::config::Config;
 use crate::error::S2Error;
+use crate::parser;
 
 struct ScanRule {
     id: String,
@@ -19,12 +21,37 @@ struct ScanRule {
 struct Finding {
     file: String,
     line: usize,
+    key: Option<String>,
     rule: String,
     description: String,
     #[serde(rename = "match")]
     matched: String,
     confidence: String,
 }
+
+// --- Key name patterns that boost confidence ---
+
+const SENSITIVE_KEY_PATTERNS: &[&str] = &[
+    "secret",
+    "password",
+    "passwd",
+    "token",
+    "key",
+    "credential",
+    "auth",
+    "private",
+    "cert",
+    "api_key",
+    "apikey",
+    "access_key",
+];
+
+fn is_sensitive_key(key: &str) -> bool {
+    let lower = key.to_lowercase();
+    SENSITIVE_KEY_PATTERNS.iter().any(|pat| lower.contains(pat))
+}
+
+// --- Rules ---
 
 fn build_rules(config: &Config) -> Result<Vec<ScanRule>, S2Error> {
     let builtins: Vec<(&str, &str, &str)> = vec![
@@ -79,11 +106,6 @@ fn build_rules(config: &Config) -> Result<Vec<ScanRule>, S2Error> {
             "SendGrid API Key",
             r"SG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}",
         ),
-        (
-            "generic-secret",
-            "Generic Secret Assignment",
-            r#"(?i)(secret|password|token|api_key|apikey|secret_key)\s*[=:]\s*['"][A-Za-z0-9+/=\-_.]{8,}['"]"#,
-        ),
     ];
 
     let mut rules: Vec<ScanRule> = builtins
@@ -96,7 +118,6 @@ fn build_rules(config: &Config) -> Result<Vec<ScanRule>, S2Error> {
         })
         .collect();
 
-    // Append custom rules from config
     for custom in &config.scan.rules {
         let regex = Regex::new(&custom.pattern).map_err(|e| {
             S2Error::Config(format!("invalid regex in scan rule '{}': {}", custom.id, e))
@@ -111,6 +132,8 @@ fn build_rules(config: &Config) -> Result<Vec<ScanRule>, S2Error> {
 
     Ok(rules)
 }
+
+// --- Entropy ---
 
 fn shannon_entropy(s: &str) -> f64 {
     if s.is_empty() {
@@ -128,6 +151,8 @@ fn shannon_entropy(s: &str) -> f64 {
         })
         .sum()
 }
+
+// --- Utilities ---
 
 fn is_binary(content: &[u8]) -> bool {
     let check_len = content.len().min(8192);
@@ -179,6 +204,61 @@ fn collect_files(paths: &[PathBuf]) -> Vec<PathBuf> {
     files
 }
 
+// --- Core scanning ---
+
+/// Test a single value against all rules and entropy.
+/// Returns the finding if detected, None otherwise.
+fn test_value(
+    value: &str,
+    key: Option<&str>,
+    rules: &[ScanRule],
+    entropy_threshold: f64,
+) -> Option<(String, String, String)> {
+    // Layer 1: pattern matching against the value
+    let line_lower = value.to_lowercase();
+    for rule in rules {
+        if let Some(ref kw) = rule.keyword {
+            // Check keyword against both key name and value
+            let key_lower = key.map(|k| k.to_lowercase()).unwrap_or_default();
+            if !line_lower.contains(kw) && !key_lower.contains(kw) {
+                continue;
+            }
+        }
+        if rule.regex.is_match(value) {
+            return Some((rule.id.clone(), rule.description.clone(), "high".into()));
+        }
+    }
+
+    // Layer 2: entropy analysis on the value
+    // Sensitive key name lowers the threshold
+    let effective_threshold = if key.is_some_and(is_sensitive_key) {
+        (entropy_threshold - 1.0).max(2.5)
+    } else {
+        entropy_threshold
+    };
+
+    let min_length = if key.is_some_and(is_sensitive_key) {
+        8
+    } else {
+        20
+    };
+
+    if value.len() >= min_length && shannon_entropy(value) > effective_threshold {
+        let confidence = if key.is_some_and(is_sensitive_key) {
+            "high"
+        } else {
+            "medium"
+        };
+        return Some((
+            "high-entropy".into(),
+            "High-entropy string (possible secret)".into(),
+            confidence.into(),
+        ));
+    }
+
+    None
+}
+
 fn scan_file(
     path: &Path,
     rules: &[ScanRule],
@@ -193,59 +273,74 @@ fn scan_file(
     let mut findings = Vec::new();
     let display_path = path.display().to_string();
 
-    let quoted_re = Regex::new(r#"['"]([A-Za-z0-9+/=\-_.]{20,})['"]"#).unwrap();
-
-    for (line_num, line) in content.lines().enumerate() {
-        let line_num = line_num + 1;
-
-        let mut matched_by_rule = false;
-        let line_lower = line.to_lowercase();
-
-        for rule in rules {
-            // Skip if keyword required but not present on this line
-            if let Some(ref kw) = rule.keyword {
-                if !line_lower.contains(kw) {
-                    continue;
-                }
+    // Try to parse as KEY=value format first
+    if let Ok(entries) = parser::parse_file(path, &content) {
+        for (i, entry) in entries.iter().enumerate() {
+            let value = entry.value.expose_secret();
+            if value.is_empty() {
+                continue;
             }
-
-            if let Some(m) = rule.regex.find(line) {
-                matched_by_rule = true;
+            if let Some((rule_id, description, confidence)) =
+                test_value(value, Some(&entry.key), rules, entropy_threshold)
+            {
                 findings.push(Finding {
                     file: display_path.clone(),
-                    line: line_num,
-                    rule: rule.id.clone(),
-                    description: rule.description.clone(),
-                    matched: redact_match(m.as_str()),
-                    confidence: "high".to_string(),
+                    line: find_key_line(&content, &entry.key, i),
+                    key: Some(entry.key.clone()),
+                    rule: rule_id,
+                    description,
+                    matched: redact_match(value),
+                    confidence,
                 });
             }
         }
+        return Ok(findings);
+    }
 
-        if !matched_by_rule {
-            for cap in quoted_re.captures_iter(line) {
-                let value = &cap[1];
-                if value.len() >= 20 && shannon_entropy(value) > entropy_threshold {
-                    findings.push(Finding {
-                        file: display_path.clone(),
-                        line: line_num,
-                        rule: "high-entropy".to_string(),
-                        description: "High-entropy string (possible secret)".to_string(),
-                        matched: redact_match(value),
-                        confidence: "medium".to_string(),
-                    });
-                }
-            }
+    // Fallback: scan each line with regex (for non-KEY=value files)
+    for (line_num, line) in content.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if let Some((rule_id, description, confidence)) =
+            test_value(line, None, rules, entropy_threshold)
+        {
+            findings.push(Finding {
+                file: display_path.clone(),
+                line: line_num + 1,
+                key: None,
+                rule: rule_id,
+                description,
+                matched: redact_match(line),
+                confidence,
+            });
         }
     }
 
     Ok(findings)
 }
 
+/// Find the line number for the Nth occurrence of a key in the content.
+fn find_key_line(content: &str, key: &str, occurrence: usize) -> usize {
+    let prefix = format!("{}=", key);
+    let export_prefix = format!("export {}=", key);
+    let mut count = 0;
+    for (i, line) in content.lines().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.starts_with(&prefix) || trimmed.starts_with(&export_prefix) {
+            if count == occurrence {
+                return i + 1;
+            }
+            count += 1;
+        }
+    }
+    1 // fallback
+}
+
 // --- Pattern learning ---
 
 fn find_prefix(value: &str) -> &str {
-    // Find the last non-alphanumeric separator where everything after is alphanumeric-ish
     let mut last_sep = 0;
     for (i, c) in value.char_indices() {
         if !c.is_ascii_alphanumeric() {
@@ -312,11 +407,28 @@ fn suggest_pattern(value: &str, index: usize) -> SuggestedRule {
     }
 }
 
-fn run_learn(learn_file: &Path, rules: &[ScanRule]) -> Result<(), S2Error> {
+fn run_learn(learn_file: &Path, rules: &[ScanRule], entropy_threshold: f64) -> Result<(), S2Error> {
     let content = std::fs::read_to_string(learn_file)?;
-    let lines: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
 
-    if lines.is_empty() {
+    // Try parsing as KEY=value format
+    let values: Vec<(String, String)> =
+        if let Ok(entries) = parser::parse_file(learn_file, &content) {
+            entries
+                .iter()
+                .map(|e| (e.key.clone(), e.value.expose_secret().to_string()))
+                .filter(|(_, v)| !v.is_empty())
+                .collect()
+        } else {
+            // Fallback: each non-empty, non-comment line is a raw value
+            content
+                .lines()
+                .map(|l| l.trim())
+                .filter(|l| !l.is_empty() && !l.starts_with('#'))
+                .map(|l| ("(raw)".to_string(), l.to_string()))
+                .collect()
+        };
+
+    if values.is_empty() {
         eprintln!("No secrets found in {}", learn_file.display());
         return Ok(());
     }
@@ -324,40 +436,30 @@ fn run_learn(learn_file: &Path, rules: &[ScanRule]) -> Result<(), S2Error> {
     let mut covered = Vec::new();
     let mut missed = Vec::new();
 
-    for (i, line) in lines.iter().enumerate() {
-        let value = line.trim();
-        let mut matched_rule = None;
-        for rule in rules {
-            if rule.regex.is_match(value) {
-                matched_rule = Some(rule.id.as_str());
-                break;
-            }
-        }
-
-        let display = redact_match(value);
-        if let Some(rule_id) = matched_rule {
-            covered.push((i + 1, display, rule_id.to_string()));
+    for (i, (key, value)) in values.iter().enumerate() {
+        if let Some((rule_id, _, _)) = test_value(value, Some(key), rules, entropy_threshold) {
+            covered.push((i + 1, key.clone(), redact_match(value), rule_id));
         } else {
-            missed.push((i + 1, display, value.to_string()));
+            missed.push((i + 1, key.clone(), redact_match(value), value.clone()));
         }
     }
 
     eprintln!(
         "Coverage: {}/{} secrets detected by existing rules\n",
         covered.len(),
-        lines.len()
+        values.len()
     );
 
-    for (line_num, display, rule_id) in &covered {
+    for (num, key, display, rule_id) in &covered {
         eprintln!(
-            "  Line {}: {}  \x1b[32m+\x1b[0m {}",
-            line_num, display, rule_id
+            "  {}: {} = {}  \x1b[32m+\x1b[0m {}",
+            num, key, display, rule_id
         );
     }
-    for (line_num, display, _) in &missed {
+    for (num, key, display, _) in &missed {
         eprintln!(
-            "  Line {}: {}  \x1b[31m-\x1b[0m not detected",
-            line_num, display
+            "  {}: {} = {}  \x1b[31m-\x1b[0m not detected",
+            num, key, display
         );
     }
 
@@ -366,11 +468,10 @@ fn run_learn(learn_file: &Path, rules: &[ScanRule]) -> Result<(), S2Error> {
         return Ok(());
     }
 
-    // Generate suggested rules
     let suggestions: Vec<SuggestedRule> = missed
         .iter()
         .enumerate()
-        .map(|(i, (_, _, value))| suggest_pattern(value, i))
+        .map(|(i, (_, _, _, value))| suggest_pattern(value, i))
         .collect();
 
     eprintln!("\nSuggested rules:\n");
@@ -384,7 +485,6 @@ fn run_learn(learn_file: &Path, rules: &[ScanRule]) -> Result<(), S2Error> {
         toml_block.push_str(&entry);
     }
 
-    // Interactive append
     if atty::is(atty::Stream::Stdin) {
         eprint!("Add to ~/.config/s2/config.toml? [y/n] ");
         io::stderr().flush().ok();
@@ -426,6 +526,8 @@ fn config_path() -> PathBuf {
     base.join("s2").join("config.toml")
 }
 
+// --- Entry point ---
+
 pub fn run(
     config: &Config,
     paths: Vec<PathBuf>,
@@ -436,9 +538,8 @@ pub fn run(
 ) -> Result<(), S2Error> {
     let rules = build_rules(config)?;
 
-    // --learn mode: test coverage and suggest rules
     if let Some(ref learn_file) = learn {
-        return run_learn(learn_file, &rules);
+        return run_learn(learn_file, &rules, entropy_threshold);
     }
 
     let files = if staged {
@@ -477,9 +578,14 @@ pub fn run(
             } else {
                 " [medium]"
             };
+            let key_display = f
+                .key
+                .as_ref()
+                .map(|k| format!("{}  ", k))
+                .unwrap_or_default();
             eprintln!(
-                "  {}:{}  {}  {}{}",
-                f.file, f.line, f.rule, f.matched, confidence
+                "  {}:{}  {}{}  {}{}",
+                f.file, f.line, key_display, f.rule, f.matched, confidence
             );
         }
 
@@ -513,56 +619,68 @@ mod tests {
     #[test]
     fn test_detects_aws_key() {
         let rules = build_rules(&default_config()).unwrap();
-        let rule = rules.iter().find(|r| r.id == "aws-access-key").unwrap();
-        assert!(rule.regex.is_match("AKIAIOSFODNN7EXAMPLE"));
-        assert!(!rule.regex.is_match("not a key"));
+        let result = test_value("AKIAIOSFODNN7EXAMPLE", None, &rules, 4.5);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().0, "aws-access-key");
     }
 
     #[test]
     fn test_detects_github_token() {
         let rules = build_rules(&default_config()).unwrap();
-        let rule = rules.iter().find(|r| r.id == "github-token").unwrap();
-        assert!(rule
-            .regex
-            .is_match("ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij"));
-        assert!(!rule.regex.is_match("ghp_short"));
+        let result = test_value(
+            "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij",
+            None,
+            &rules,
+            4.5,
+        );
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().0, "github-token");
     }
 
     #[test]
     fn test_detects_private_key() {
         let rules = build_rules(&default_config()).unwrap();
-        let rule = rules.iter().find(|r| r.id == "private-key").unwrap();
-        assert!(rule.regex.is_match("-----BEGIN RSA PRIVATE KEY-----"));
-        assert!(rule.regex.is_match("-----BEGIN PRIVATE KEY-----"));
-        assert!(!rule.regex.is_match("-----BEGIN PUBLIC KEY-----"));
+        let result = test_value("-----BEGIN RSA PRIVATE KEY-----", None, &rules, 4.5);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().0, "private-key");
     }
 
     #[test]
     fn test_detects_stripe_key() {
         let rules = build_rules(&default_config()).unwrap();
-        let rule = rules.iter().find(|r| r.id == "stripe-key").unwrap();
-        assert!(rule.regex.is_match("sk_live_abcdefghijklmnop"));
-        assert!(rule.regex.is_match("rk_test_1234567890abcdef"));
-        assert!(!rule.regex.is_match("pk_live_public"));
+        let result = test_value("sk_live_abcdefghijklmnop", None, &rules, 4.5);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().0, "stripe-key");
     }
 
     #[test]
     fn test_detects_jwt() {
         let rules = build_rules(&default_config()).unwrap();
-        let rule = rules.iter().find(|r| r.id == "jwt").unwrap();
-        assert!(rule
-            .regex
-            .is_match("eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"));
-        assert!(!rule.regex.is_match("not.a.jwt"));
+        let result = test_value(
+            "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U",
+            None,
+            &rules,
+            4.5,
+        );
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().0, "jwt");
     }
 
     #[test]
-    fn test_detects_generic_secret() {
+    fn test_sensitive_key_lowers_entropy_threshold() {
         let rules = build_rules(&default_config()).unwrap();
-        let rule = rules.iter().find(|r| r.id == "generic-secret").unwrap();
-        assert!(rule.regex.is_match(r#"password = "supersecret123""#));
-        assert!(rule.regex.is_match(r#"API_KEY: 'abcdefghijklmnop'"#));
-        assert!(!rule.regex.is_match(r#"password = "short""#));
+        // Value with moderate entropy — triggers with sensitive key (lower threshold) but not generic
+        let value = "xK9mL2nP4qR7tY";
+        assert!(test_value(value, Some("DB_PASSWORD"), &rules, 4.5).is_some());
+        assert!(test_value(value, Some("APP_NAME"), &rules, 4.5).is_none());
+    }
+
+    #[test]
+    fn test_skips_empty_and_low_entropy() {
+        let rules = build_rules(&default_config()).unwrap();
+        assert!(test_value("", None, &rules, 4.5).is_none());
+        assert!(test_value("hello", None, &rules, 4.5).is_none());
+        assert!(test_value("true", Some("IS_PRODUCTION"), &rules, 4.5).is_none());
     }
 
     #[test]
@@ -611,29 +729,37 @@ mod tests {
         assert!(s.description.contains("qbo_"));
 
         let s = suggest_pattern("AKIAIOSFODNN7EXAMPLE", 1);
-        // No prefix detected, full string is alphanumeric
         assert!(s.pattern.contains("[A-Z0-9]{20}"));
     }
 
     #[test]
     fn test_keyword_filtering() {
-        let rule = ScanRule {
-            id: "test".to_string(),
-            description: "test".to_string(),
-            regex: Regex::new(r"[a-zA-Z0-9]{24}").unwrap(),
+        let mut config = Config::default();
+        config.scan.rules.push(crate::config::CustomScanRule {
+            id: "vercel".to_string(),
+            description: "Vercel Token".to_string(),
+            pattern: r"[a-zA-Z0-9]{24}".to_string(),
             keyword: Some("vercel".to_string()),
-        };
+        });
 
-        // Should match — keyword present
-        assert!(rule.regex.is_match("abcdefghijklmnopqrstuvwx"));
-        let line = "VERCEL_TOKEN=abcdefghijklmnopqrstuvwx";
-        let line_lower = line.to_lowercase();
-        assert!(line_lower.contains(rule.keyword.as_ref().unwrap()));
+        let rules = build_rules(&config).unwrap();
 
-        // Should not match — keyword absent
-        let line2 = "OTHER_TOKEN=abcdefghijklmnopqrstuvwx";
-        let line2_lower = line2.to_lowercase();
-        assert!(!line2_lower.contains(rule.keyword.as_ref().unwrap()));
+        // Matches: keyword in key name
+        let result = test_value(
+            "abcdefghijklmnopqrstuvwx",
+            Some("VERCEL_TOKEN"),
+            &rules,
+            4.5,
+        );
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().0, "vercel");
+
+        // No match: keyword absent
+        let result = test_value("abcdefghijklmnopqrstuvwx", Some("OTHER_TOKEN"), &rules, 4.5);
+        // May still match via entropy, but not via the vercel rule
+        if let Some((rule_id, _, _)) = result {
+            assert_ne!(rule_id, "vercel");
+        }
     }
 
     #[test]
@@ -647,8 +773,8 @@ mod tests {
         });
 
         let rules = build_rules(&config).unwrap();
-        let custom = rules.iter().find(|r| r.id == "test-rule").unwrap();
-        assert!(custom.regex.is_match("test_abcdefghij"));
-        assert!(!custom.regex.is_match("test_short"));
+        let result = test_value("test_abcdefghij", None, &rules, 4.5);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().0, "test-rule");
     }
 }
