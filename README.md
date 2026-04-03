@@ -36,16 +36,16 @@ cargo install --path .      # from source
 s2 init ~/.secrets
 
 # Add a secret (reads value from stdin, never from CLI args)
-echo "my-token" | s2 set PEERDB_AUTH_TOKEN -f ~/.secrets
+echo "my-token" | s2 set KUBECONFIG_TOKEN -f ~/.secrets
 
 # Run a command with secrets injected
-s2 exec -f ~/.secrets -- novahub mirror list
+s2 exec -f ~/.secrets -- kubectl get pods
 
 # List available keys (never shows values)
 s2 list -f ~/.secrets
 
 # Check if required keys exist
-s2 check PEERDB_AUTH_TOKEN API_KEY -f ~/.secrets
+s2 check KUBECONFIG_TOKEN API_KEY -f ~/.secrets
 
 # Encrypt the file at rest
 s2 encrypt ~/.secrets
@@ -80,9 +80,9 @@ Create `~/.config/s2/config.toml`:
 default_files = ["~/.secrets"]
 audit_log = "~/.config/s2/audit.log"
 
-[profiles.peerdb]
+[profiles.k8s]
 files = ["~/.secrets"]
-keys = ["PEERDB_AUTH_TOKEN"]
+keys = ["KUBECONFIG_TOKEN"]
 
 [profiles.deploy]
 files = ["~/.secrets", ".env.local"]
@@ -91,7 +91,7 @@ files = ["~/.secrets", ".env.local"]
 Then use profiles:
 
 ```bash
-s2 exec -p peerdb -- novahub mirror list
+s2 exec -p k8s -- kubectl get pods
 ```
 
 ## Security Model
