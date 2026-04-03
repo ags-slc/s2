@@ -27,6 +27,7 @@ cargo fmt --check                  # format check
 - **`execve` replaces the process** in `s2 exec` — no parent process persists after exec.
 - **File permissions are enforced** — s2 refuses to read files that aren't 0600.
 - **stdin-only for secret values** — `s2 set` reads from stdin, never CLI args.
+- **Encrypted by default** — `s2 init` creates encrypted files. `s2 set`/`s2 unset` transparently decrypt, modify, and re-encrypt. Pass `--no-encrypt` to init for plaintext.
 - **Feature flags**: `provider-ssm` (default), `provider-vault` (opt-in). SSM deps are heavy; Vault needs `reqwest`.
 
 ## Release

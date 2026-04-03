@@ -32,10 +32,11 @@ cargo install --path .      # from source
 ## Quick Start
 
 ```bash
-# Create a secret file
+# Create a secret file (encrypted by default, passphrase stored in keychain)
 s2 init ~/.secrets
 
 # Add secrets (reads values from stdin, never from CLI args)
+# set/unset transparently handle encrypted files
 echo "AKIA..." | s2 set AWS_SECRET_ACCESS_KEY -f ~/.secrets
 
 # Run any command with secrets injected
@@ -48,9 +49,6 @@ s2 list -f ~/.secrets
 
 # Check if required keys exist
 s2 check AWS_SECRET_ACCESS_KEY -f ~/.secrets
-
-# Encrypt the file at rest
-s2 encrypt ~/.secrets
 
 # Edit encrypted file (decrypts → $EDITOR → re-encrypts)
 s2 edit ~/.secrets
@@ -66,10 +64,10 @@ kubectl logs pod | s2 redact -f ~/.secrets
 | `s2 exec` | Load secrets and exec a command with them in the environment |
 | `s2 list` | List secret key names and source files (never values) |
 | `s2 check` | Exit 0 if all specified keys exist, exit 1 with missing names |
-| `s2 init` | Create a new secret file with 0600 permissions |
-| `s2 set` | Set a secret (reads value from stdin) |
-| `s2 unset` | Remove a secret from a file |
-| `s2 encrypt` | Encrypt a file with age (passphrase stored in keychain) |
+| `s2 init` | Create a new secret file (encrypted by default, `--no-encrypt` for plaintext) |
+| `s2 set` | Set a secret (reads value from stdin, handles encrypted files) |
+| `s2 unset` | Remove a secret from a file (handles encrypted files) |
+| `s2 encrypt` | Encrypt an existing plaintext file with age |
 | `s2 decrypt` | Decrypt an age-encrypted file |
 | `s2 edit` | Decrypt → $EDITOR → re-encrypt |
 | `s2 redact` | Pipe filter replacing secret values with `[REDACTED]` |
