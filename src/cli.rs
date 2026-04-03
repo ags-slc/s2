@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -111,8 +111,12 @@ pub enum Command {
         path: PathBuf,
     },
 
-    /// Claude Code PreToolUse hook (reads JSON from stdin, emits JSON to stdout)
-    Hook,
+    /// AI agent PreToolUse hook (reads JSON from stdin, emits JSON to stdout)
+    Hook {
+        /// Agent hook format
+        #[arg(long, value_enum, default_value = "claude")]
+        format: HookFormat,
+    },
 
     /// Pipe filter: replace secret values with [REDACTED]
     Redact {
@@ -124,4 +128,14 @@ pub enum Command {
         #[arg(short = 'p', long = "profile")]
         profile: Option<String>,
     },
+}
+
+#[derive(ValueEnum, Clone, Debug)]
+pub enum HookFormat {
+    /// Claude Code / GitHub Copilot
+    Claude,
+    /// GitHub Copilot (alias for claude)
+    Copilot,
+    /// Cursor IDE
+    Cursor,
 }

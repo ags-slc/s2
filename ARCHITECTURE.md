@@ -230,18 +230,32 @@ Provider-resolved values are cached in an age-encrypted file with per-entry TTL:
 
 ## Hook System
 
-The `s2 hook` subcommand integrates with Claude Code as a PreToolUse handler.
+The `s2 hook` subcommand integrates with AI coding agents as a PreToolUse handler. The `--format` flag selects the output JSON format for each agent.
 
 ### Flow
 
 ```
-Claude Code                    s2 hook                     Claude Code
+AI Agent                       s2 hook                     AI Agent
 ┌──────────┐    JSON stdin    ┌──────────┐    JSON stdout  ┌──────────┐
 │ agent     │────────────────▶│ detect   │───────────────▶ │ runs     │
 │ runs      │                 │ command, │                  │ rewritten│
 │ "aws s3"  │                 │ rewrite  │                  │ command  │
 └──────────┘                 └──────────┘                 └──────────┘
 ```
+
+### Format Adapters
+
+The rewrite logic (input parsing, guard conditions, `build_wrapped_command`) is shared. Only the output serialization differs:
+
+| Format | Flag | Output (rewrite) | Output (passthrough) |
+|--------|------|-------------------|---------------------|
+| Claude Code | `--format claude` (default) | `{"hookSpecificOutput":{"updatedInput":{"command":"..."}}}` | empty |
+| Copilot | `--format copilot` | same as claude | empty |
+| Cursor | `--format cursor` | `{"permission":"allow","updated_input":{"command":"..."}}` | `{}` |
+
+Agents without programmatic hooks:
+- **Codex**: prompt-level awareness file (`hooks/codex/s2-awareness.md`)
+- **OpenCode**: TypeScript plugin (`hooks/opencode/s2.ts`) that calls `s2 hook --format cursor`
 
 ### Guard Conditions (passthrough)
 

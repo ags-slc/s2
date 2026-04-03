@@ -92,7 +92,7 @@ fn main() {
             commands::redact::run(&config, registry, cache, files, profile)
         }
 
-        Command::Hook => commands::hook::run(&config),
+        Command::Hook { format } => commands::hook::run(&config, &format),
     };
 
     if let Err(e) = result {

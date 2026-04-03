@@ -1,12 +1,17 @@
 use std::io::Read;
 
+use crate::cli::HookFormat;
 use crate::config::Config;
 use crate::error::S2Error;
 
+// --- Input (shared across formats) ---
+
 #[derive(serde::Deserialize)]
 struct HookInput {
-    tool_name: String,
-    tool_input: ToolInput,
+    #[serde(default)]
+    tool_name: Option<String>,
+    #[serde(default)]
+    tool_input: Option<ToolInput>,
 }
 
 #[derive(serde::Deserialize)]
@@ -14,66 +19,101 @@ struct ToolInput {
     command: Option<String>,
 }
 
+// --- Output: Claude / Copilot ---
+
 #[derive(serde::Serialize)]
-struct HookOutput {
+struct ClaudeOutput {
     #[serde(rename = "hookSpecificOutput")]
-    hook_specific_output: HookSpecificOutput,
+    hook_specific_output: ClaudeHookSpecific,
 }
 
 #[derive(serde::Serialize)]
-struct HookSpecificOutput {
+struct ClaudeHookSpecific {
     #[serde(rename = "updatedInput")]
-    updated_input: UpdatedInput,
+    updated_input: CommandUpdate,
 }
 
+// --- Output: Cursor ---
+
 #[derive(serde::Serialize)]
-struct UpdatedInput {
+struct CursorOutput {
+    permission: String,
+    updated_input: CommandUpdate,
+}
+
+// --- Shared ---
+
+#[derive(serde::Serialize)]
+struct CommandUpdate {
     command: String,
 }
 
-pub fn run(config: &Config) -> Result<(), S2Error> {
+pub fn run(config: &Config, format: &HookFormat) -> Result<(), S2Error> {
     let mut input = String::new();
     std::io::stdin().read_to_string(&mut input)?;
 
     let hook_input: HookInput = match serde_json::from_str(&input) {
         Ok(h) => h,
-        Err(_) => return Ok(()),
+        Err(_) => return passthrough(format),
     };
 
-    if hook_input.tool_name != "Bash" {
-        return Ok(());
+    // Guard: only Bash tool (tool_name may be absent in some formats)
+    if let Some(ref name) = hook_input.tool_name {
+        if name != "Bash" {
+            return passthrough(format);
+        }
     }
 
-    let command = match hook_input.tool_input.command {
-        Some(ref c) if !c.is_empty() => c.clone(),
-        _ => return Ok(()),
+    let command = match hook_input.tool_input.and_then(|t| t.command) {
+        Some(c) if !c.is_empty() => c,
+        _ => return passthrough(format),
     };
 
     if starts_with_s2(&command) || command.contains("s2 exec") {
-        return Ok(());
+        return passthrough(format);
     }
 
     let root_cmd = extract_root_command(&command);
 
     if !config.hook.should_wrap(&root_cmd) {
-        return Ok(());
+        return passthrough(format);
     }
 
     let exec_args = match config.hook.exec_args(&config.default_files) {
         Some(args) => args,
-        None => return Ok(()),
+        None => return passthrough(format),
     };
 
     let wrapped = build_wrapped_command(&command, &exec_args);
-
-    let output = HookOutput {
-        hook_specific_output: HookSpecificOutput {
-            updated_input: UpdatedInput { command: wrapped },
-        },
-    };
-
-    println!("{}", serde_json::to_string(&output).unwrap());
+    emit_rewrite(format, wrapped);
     Ok(())
+}
+
+/// Passthrough: no rewrite. Claude/Copilot = no output. Cursor = `{}`.
+fn passthrough(format: &HookFormat) -> Result<(), S2Error> {
+    match format {
+        HookFormat::Cursor => println!("{{}}"),
+        HookFormat::Claude | HookFormat::Copilot => {}
+    }
+    Ok(())
+}
+
+/// Emit a rewrite in the agent's expected JSON format.
+fn emit_rewrite(format: &HookFormat, command: String) {
+    let json = match format {
+        HookFormat::Claude | HookFormat::Copilot => serde_json::to_string(&ClaudeOutput {
+            hook_specific_output: ClaudeHookSpecific {
+                updated_input: CommandUpdate { command },
+            },
+        })
+        .unwrap(),
+        HookFormat::Cursor => serde_json::to_string(&CursorOutput {
+            permission: "allow".to_string(),
+            updated_input: CommandUpdate { command },
+        })
+        .unwrap(),
+    };
+    println!("{}", json);
 }
 
 fn starts_with_s2(cmd: &str) -> bool {
@@ -83,7 +123,6 @@ fn starts_with_s2(cmd: &str) -> bool {
 
 fn extract_root_command(cmd: &str) -> String {
     let trimmed = cmd.trim_start();
-    // Skip env-style prefixes: KEY=value cmd
     let mut rest = trimmed;
     loop {
         let token = match rest.split_whitespace().next() {

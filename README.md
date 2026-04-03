@@ -145,13 +145,13 @@ API_KEY=ssm:///prod/apps/myapp/secrets/API_KEY
 - **`s2 redact`** — pipe build or deploy logs through s2 to scrub any leaked values
 - **`execve` replacement** — secrets don't persist in `/proc/pid/environ` after the step
 
-## Claude Code Integration
+## AI Agent Integration
 
-s2 includes a hook that automatically injects secrets when AI agents run commands. No prompt engineering needed — the agent runs `aws s3 ls` and s2 transparently wraps it with `s2 exec`.
+s2 includes hooks that automatically inject secrets when AI agents run commands. The agent runs `aws s3 ls` and s2 transparently wraps it with `s2 exec`. Supports Claude Code, GitHub Copilot, Cursor, Codex, and OpenCode.
 
-### Setup
+### Shared Config
 
-1. Add a `[hook]` section to `~/.config/s2/config.toml`:
+Add a `[hook]` section to `~/.config/s2/config.toml` (used by all agents):
 
 ```toml
 [hook]
@@ -159,7 +159,9 @@ commands = ["aws", "terraform", "kubectl", "docker"]
 profile = "aws"       # or use: files = ["~/.secrets"]
 ```
 
-2. Register the hook in `~/.claude/settings.json`:
+### Claude Code / GitHub Copilot
+
+Add to `~/.claude/settings.json` (or `.github/copilot-instructions.md` hook config):
 
 ```json
 {
@@ -179,7 +181,39 @@ profile = "aws"       # or use: files = ["~/.secrets"]
 }
 ```
 
-The agent runs `aws s3 ls` and s2 rewrites it to `s2 exec -p aws -- aws s3 ls`. Commands not in the `commands` list pass through untouched. `s2` commands are never wrapped (no infinite loops).
+For Copilot, use `s2 hook --format copilot` (same behavior, explicit format).
+
+### Cursor
+
+Add to `~/.cursor/hooks.json`:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "s2 hook --format cursor"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Or use the provided shell wrapper: `hooks/cursor/s2-rewrite.sh`.
+
+### Codex
+
+Copy `hooks/codex/s2-awareness.md` into your project's `AGENTS.md` or Codex instructions. Codex doesn't support programmatic hooks — the awareness file instructs the agent to use `s2 exec` directly.
+
+### OpenCode
+
+Copy `hooks/opencode/s2.ts` to `~/.config/opencode/plugins/s2.ts`. The plugin intercepts shell commands and pipes them through `s2 hook --format cursor`.
 
 ## Security Model
 
