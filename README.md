@@ -94,6 +94,55 @@ Then use profiles:
 s2 exec -p aws -- terraform apply
 ```
 
+## CI/CD
+
+s2 works in CI pipelines — secrets are scoped to individual steps, never leaked to the runner environment.
+
+### GitHub Actions
+
+```yaml
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install s2
+        run: curl -fsSL https://raw.githubusercontent.com/ags-slc/s2/main/install.sh | sh
+
+      - name: Deploy
+        run: |
+          # Bridge CI secrets into s2, then inject into deploy script
+          echo "${{ secrets.AWS_SECRET_ACCESS_KEY }}" | s2 set AWS_SECRET_ACCESS_KEY -f .secrets --no-encrypt
+          s2 exec -f .secrets --clean-env -- ./deploy.sh
+        # --clean-env ensures only secrets + minimal vars reach the subprocess
+
+      - name: Scrub logs
+        run: kubectl logs deploy/app | s2 redact -f .secrets
+```
+
+### SSM in CI
+
+If your CI runner has AWS access, s2 can pull secrets directly from SSM — no pipeline variables needed:
+
+```bash
+# .secrets
+DB_PASSWORD=ssm:///prod/apps/myapp/secrets/DB_PASSWORD
+API_KEY=ssm:///prod/apps/myapp/secrets/API_KEY
+```
+
+```yaml
+- name: Run migrations
+  run: s2 exec -f .secrets --clean-env -- ./run-migrations.sh
+```
+
+### Why s2 in CI?
+
+- **Scoped injection** — secrets only reach the subprocess, not the entire runner environment
+- **`--clean-env`** — strips runner env pollution, subprocess gets only what it needs
+- **`s2 redact`** — pipe build or deploy logs through s2 to scrub any leaked values
+- **`execve` replacement** — secrets don't persist in `/proc/pid/environ` after the step
+
 ## Claude Code Integration
 
 s2 includes a hook that automatically injects secrets when AI agents run commands. No prompt engineering needed — the agent runs `aws s3 ls` and s2 transparently wraps it with `s2 exec`.
