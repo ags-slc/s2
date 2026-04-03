@@ -1,15 +1,18 @@
 use std::collections::HashMap;
+use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::process;
 
 use regex::Regex;
 
+use crate::config::Config;
 use crate::error::S2Error;
 
 struct ScanRule {
-    id: &'static str,
-    description: &'static str,
+    id: String,
+    description: String,
     regex: Regex,
+    keyword: Option<String>,
 }
 
 #[derive(serde::Serialize)]
@@ -23,8 +26,8 @@ struct Finding {
     confidence: String,
 }
 
-fn build_rules() -> Vec<ScanRule> {
-    let patterns: Vec<(&str, &str, &str)> = vec![
+fn build_rules(config: &Config) -> Result<Vec<ScanRule>, S2Error> {
+    let builtins: Vec<(&str, &str, &str)> = vec![
         (
             "aws-access-key",
             "AWS Access Key",
@@ -83,14 +86,30 @@ fn build_rules() -> Vec<ScanRule> {
         ),
     ];
 
-    patterns
+    let mut rules: Vec<ScanRule> = builtins
         .into_iter()
         .map(|(id, desc, pat)| ScanRule {
-            id,
-            description: desc,
+            id: id.to_string(),
+            description: desc.to_string(),
             regex: Regex::new(pat).unwrap(),
+            keyword: None,
         })
-        .collect()
+        .collect();
+
+    // Append custom rules from config
+    for custom in &config.scan.rules {
+        let regex = Regex::new(&custom.pattern).map_err(|e| {
+            S2Error::Config(format!("invalid regex in scan rule '{}': {}", custom.id, e))
+        })?;
+        rules.push(ScanRule {
+            id: custom.id.clone(),
+            description: custom.description.clone(),
+            regex,
+            keyword: custom.keyword.as_ref().map(|k| k.to_lowercase()),
+        });
+    }
+
+    Ok(rules)
 }
 
 fn shannon_entropy(s: &str) -> f64 {
@@ -174,29 +193,35 @@ fn scan_file(
     let mut findings = Vec::new();
     let display_path = path.display().to_string();
 
-    // Regex to extract quoted strings for entropy analysis
     let quoted_re = Regex::new(r#"['"]([A-Za-z0-9+/=\-_.]{20,})['"]"#).unwrap();
 
     for (line_num, line) in content.lines().enumerate() {
         let line_num = line_num + 1;
 
-        // Layer 1: pattern matching
         let mut matched_by_rule = false;
+        let line_lower = line.to_lowercase();
+
         for rule in rules {
+            // Skip if keyword required but not present on this line
+            if let Some(ref kw) = rule.keyword {
+                if !line_lower.contains(kw) {
+                    continue;
+                }
+            }
+
             if let Some(m) = rule.regex.find(line) {
                 matched_by_rule = true;
                 findings.push(Finding {
                     file: display_path.clone(),
                     line: line_num,
-                    rule: rule.id.to_string(),
-                    description: rule.description.to_string(),
+                    rule: rule.id.clone(),
+                    description: rule.description.clone(),
                     matched: redact_match(m.as_str()),
                     confidence: "high".to_string(),
                 });
             }
         }
 
-        // Layer 2: entropy analysis (only if no rule matched)
         if !matched_by_rule {
             for cap in quoted_re.captures_iter(line) {
                 let value = &cap[1];
@@ -217,13 +242,204 @@ fn scan_file(
     Ok(findings)
 }
 
+// --- Pattern learning ---
+
+fn find_prefix(value: &str) -> &str {
+    // Find the last non-alphanumeric separator where everything after is alphanumeric-ish
+    let mut last_sep = 0;
+    for (i, c) in value.char_indices() {
+        if !c.is_ascii_alphanumeric() {
+            let rest = &value[i + c.len_utf8()..];
+            if !rest.is_empty()
+                && rest
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+            {
+                last_sep = i + c.len_utf8();
+            }
+        }
+    }
+    &value[..last_sep]
+}
+
+fn classify_chars(s: &str) -> &'static str {
+    let has_lower = s.chars().any(|c| c.is_ascii_lowercase());
+    let has_upper = s.chars().any(|c| c.is_ascii_uppercase());
+    let has_digit = s.chars().any(|c| c.is_ascii_digit());
+    let has_dash = s.contains('-');
+    let has_underscore = s.contains('_');
+
+    match (has_lower, has_upper, has_digit, has_dash, has_underscore) {
+        (true, true, true, true, true) => "[a-zA-Z0-9_-]",
+        (true, true, true, false, true) => "[a-zA-Z0-9_]",
+        (true, true, true, true, false) => "[a-zA-Z0-9-]",
+        (true, true, true, false, false) => "[a-zA-Z0-9]",
+        (true, false, true, false, false) => "[a-z0-9]",
+        (false, true, true, false, false) => "[A-Z0-9]",
+        (true, true, false, false, false) => "[a-zA-Z]",
+        (true, false, false, false, false) => "[a-z]",
+        (false, true, false, false, false) => "[A-Z]",
+        (false, false, true, false, false) => "[0-9]",
+        _ => "[a-zA-Z0-9_-]",
+    }
+}
+
+struct SuggestedRule {
+    id: String,
+    description: String,
+    pattern: String,
+}
+
+fn suggest_pattern(value: &str, index: usize) -> SuggestedRule {
+    let prefix = find_prefix(value);
+    let rest = &value[prefix.len()..];
+    let char_class = classify_chars(rest);
+    let len = rest.len();
+
+    let escaped_prefix = regex::escape(prefix);
+    let pattern = format!("{}{}{{{}}}", escaped_prefix, char_class, len);
+
+    let description = if prefix.is_empty() {
+        format!("{} chars {}", len, char_class)
+    } else {
+        format!("Prefix '{}' + {} chars {}", prefix, len, char_class)
+    };
+
+    SuggestedRule {
+        id: format!("custom-{}", index + 1),
+        description,
+        pattern,
+    }
+}
+
+fn run_learn(learn_file: &Path, rules: &[ScanRule]) -> Result<(), S2Error> {
+    let content = std::fs::read_to_string(learn_file)?;
+    let lines: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
+
+    if lines.is_empty() {
+        eprintln!("No secrets found in {}", learn_file.display());
+        return Ok(());
+    }
+
+    let mut covered = Vec::new();
+    let mut missed = Vec::new();
+
+    for (i, line) in lines.iter().enumerate() {
+        let value = line.trim();
+        let mut matched_rule = None;
+        for rule in rules {
+            if rule.regex.is_match(value) {
+                matched_rule = Some(rule.id.as_str());
+                break;
+            }
+        }
+
+        let display = redact_match(value);
+        if let Some(rule_id) = matched_rule {
+            covered.push((i + 1, display, rule_id.to_string()));
+        } else {
+            missed.push((i + 1, display, value.to_string()));
+        }
+    }
+
+    eprintln!(
+        "Coverage: {}/{} secrets detected by existing rules\n",
+        covered.len(),
+        lines.len()
+    );
+
+    for (line_num, display, rule_id) in &covered {
+        eprintln!(
+            "  Line {}: {}  \x1b[32m+\x1b[0m {}",
+            line_num, display, rule_id
+        );
+    }
+    for (line_num, display, _) in &missed {
+        eprintln!(
+            "  Line {}: {}  \x1b[31m-\x1b[0m not detected",
+            line_num, display
+        );
+    }
+
+    if missed.is_empty() {
+        eprintln!("\nAll secrets covered!");
+        return Ok(());
+    }
+
+    // Generate suggested rules
+    let suggestions: Vec<SuggestedRule> = missed
+        .iter()
+        .enumerate()
+        .map(|(i, (_, _, value))| suggest_pattern(value, i))
+        .collect();
+
+    eprintln!("\nSuggested rules:\n");
+    let mut toml_block = String::new();
+    for s in &suggestions {
+        let entry = format!(
+            "[[scan.rules]]\nid = \"{}\"\ndescription = \"{}\"\npattern = '{}'\n\n",
+            s.id, s.description, s.pattern
+        );
+        eprint!("  {}", entry.replace('\n', "\n  "));
+        toml_block.push_str(&entry);
+    }
+
+    // Interactive append
+    if atty::is(atty::Stream::Stdin) {
+        eprint!("Add to ~/.config/s2/config.toml? [y/n] ");
+        io::stderr().flush().ok();
+        let mut answer = String::new();
+        io::stdin().lock().read_line(&mut answer).ok();
+        if answer.trim().eq_ignore_ascii_case("y") {
+            let config_path = config_path();
+            if let Some(parent) = config_path.parent() {
+                std::fs::create_dir_all(parent).ok();
+            }
+            let mut file = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&config_path)
+                .map_err(|e| S2Error::Config(format!("failed to open config: {}", e)))?;
+            file.write_all(b"\n")
+                .and_then(|_| file.write_all(toml_block.as_bytes()))
+                .map_err(|e| S2Error::Config(format!("failed to write config: {}", e)))?;
+            eprintln!(
+                "Added {} rule(s) to {}",
+                suggestions.len(),
+                config_path.display()
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn config_path() -> PathBuf {
+    let base = std::env::var("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| {
+            std::env::var("HOME")
+                .map(PathBuf::from)
+                .unwrap_or_else(|_| PathBuf::from("."))
+                .join(".config")
+        });
+    base.join("s2").join("config.toml")
+}
+
 pub fn run(
+    config: &Config,
     paths: Vec<PathBuf>,
     staged: bool,
     json: bool,
     entropy_threshold: f64,
+    learn: Option<PathBuf>,
 ) -> Result<(), S2Error> {
-    let rules = build_rules();
+    let rules = build_rules(config)?;
+
+    // --learn mode: test coverage and suggest rules
+    if let Some(ref learn_file) = learn {
+        return run_learn(learn_file, &rules);
+    }
 
     let files = if staged {
         collect_staged_files()?
@@ -241,7 +457,7 @@ pub fn run(
         }
         match scan_file(file, &rules, entropy_threshold) {
             Ok(findings) => all_findings.extend(findings),
-            Err(_) => continue, // skip unreadable files
+            Err(_) => continue,
         }
     }
 
@@ -252,7 +468,6 @@ pub fn run(
     } else if all_findings.is_empty() {
         eprintln!("No secrets found ({} files scanned)", files.len());
     } else {
-        // Group by file for display
         let mut by_file: Vec<&Finding> = all_findings.iter().collect();
         by_file.sort_by(|a, b| a.file.cmp(&b.file).then(a.line.cmp(&b.line)));
 
@@ -291,80 +506,149 @@ pub fn run(
 mod tests {
     use super::*;
 
+    fn default_config() -> Config {
+        Config::default()
+    }
+
     #[test]
     fn test_detects_aws_key() {
-        let rules = build_rules();
-        let finding = rules.iter().find(|r| r.id == "aws-access-key").unwrap();
-        assert!(finding.regex.is_match("AKIAIOSFODNN7EXAMPLE"));
-        assert!(!finding.regex.is_match("not a key"));
+        let rules = build_rules(&default_config()).unwrap();
+        let rule = rules.iter().find(|r| r.id == "aws-access-key").unwrap();
+        assert!(rule.regex.is_match("AKIAIOSFODNN7EXAMPLE"));
+        assert!(!rule.regex.is_match("not a key"));
     }
 
     #[test]
     fn test_detects_github_token() {
-        let rules = build_rules();
-        let finding = rules.iter().find(|r| r.id == "github-token").unwrap();
-        assert!(finding
+        let rules = build_rules(&default_config()).unwrap();
+        let rule = rules.iter().find(|r| r.id == "github-token").unwrap();
+        assert!(rule
             .regex
             .is_match("ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij"));
-        assert!(!finding.regex.is_match("ghp_short"));
+        assert!(!rule.regex.is_match("ghp_short"));
     }
 
     #[test]
     fn test_detects_private_key() {
-        let rules = build_rules();
-        let finding = rules.iter().find(|r| r.id == "private-key").unwrap();
-        assert!(finding.regex.is_match("-----BEGIN RSA PRIVATE KEY-----"));
-        assert!(finding.regex.is_match("-----BEGIN PRIVATE KEY-----"));
-        assert!(!finding.regex.is_match("-----BEGIN PUBLIC KEY-----"));
+        let rules = build_rules(&default_config()).unwrap();
+        let rule = rules.iter().find(|r| r.id == "private-key").unwrap();
+        assert!(rule.regex.is_match("-----BEGIN RSA PRIVATE KEY-----"));
+        assert!(rule.regex.is_match("-----BEGIN PRIVATE KEY-----"));
+        assert!(!rule.regex.is_match("-----BEGIN PUBLIC KEY-----"));
     }
 
     #[test]
     fn test_detects_stripe_key() {
-        let rules = build_rules();
-        let finding = rules.iter().find(|r| r.id == "stripe-key").unwrap();
-        assert!(finding.regex.is_match("sk_live_abcdefghijklmnop"));
-        assert!(finding.regex.is_match("rk_test_1234567890abcdef"));
-        assert!(!finding.regex.is_match("pk_live_public"));
+        let rules = build_rules(&default_config()).unwrap();
+        let rule = rules.iter().find(|r| r.id == "stripe-key").unwrap();
+        assert!(rule.regex.is_match("sk_live_abcdefghijklmnop"));
+        assert!(rule.regex.is_match("rk_test_1234567890abcdef"));
+        assert!(!rule.regex.is_match("pk_live_public"));
     }
 
     #[test]
     fn test_detects_jwt() {
-        let rules = build_rules();
-        let finding = rules.iter().find(|r| r.id == "jwt").unwrap();
-        assert!(finding
+        let rules = build_rules(&default_config()).unwrap();
+        let rule = rules.iter().find(|r| r.id == "jwt").unwrap();
+        assert!(rule
             .regex
             .is_match("eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"));
-        assert!(!finding.regex.is_match("not.a.jwt"));
+        assert!(!rule.regex.is_match("not.a.jwt"));
     }
 
     #[test]
     fn test_detects_generic_secret() {
-        let rules = build_rules();
-        let finding = rules.iter().find(|r| r.id == "generic-secret").unwrap();
-        assert!(finding.regex.is_match(r#"password = "supersecret123""#));
-        assert!(finding.regex.is_match(r#"API_KEY: 'abcdefghijklmnop'"#));
-        assert!(!finding.regex.is_match(r#"password = "short""#));
+        let rules = build_rules(&default_config()).unwrap();
+        let rule = rules.iter().find(|r| r.id == "generic-secret").unwrap();
+        assert!(rule.regex.is_match(r#"password = "supersecret123""#));
+        assert!(rule.regex.is_match(r#"API_KEY: 'abcdefghijklmnop'"#));
+        assert!(!rule.regex.is_match(r#"password = "short""#));
     }
 
     #[test]
     fn test_shannon_entropy() {
-        // Low entropy (repeated chars)
         assert!(shannon_entropy("aaaaaaaaaa") < 1.0);
-        // Medium entropy (English-like)
         assert!(shannon_entropy("hello world") < 4.0);
-        // High entropy (random-looking)
         assert!(shannon_entropy("aB3$kL9!mN2@pQ5#xR7^tY0&wZ8*") > 4.0);
     }
 
     #[test]
     fn test_is_binary() {
-        assert!(is_binary(&[0x89, 0x50, 0x4E, 0x47, 0x00])); // PNG with null
+        assert!(is_binary(&[0x89, 0x50, 0x4E, 0x47, 0x00]));
         assert!(!is_binary(b"just plain text"));
     }
 
     #[test]
     fn test_redact_match() {
-        assert_eq!(redact_match("AKIAIOSFODNN7EXAMPLE"), "AKIA\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}");
-        assert_eq!(redact_match("short"), "short"); // too short to redact
+        assert_eq!(
+            redact_match("AKIAIOSFODNN7EXAMPLE"),
+            "AKIA\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}"
+        );
+        assert_eq!(redact_match("short"), "short");
+    }
+
+    #[test]
+    fn test_find_prefix() {
+        assert_eq!(find_prefix("qbo_xK9mL2nP4qR7"), "qbo_");
+        assert_eq!(find_prefix("sk_live_abcdef123"), "sk_live_");
+        assert_eq!(find_prefix("AKIAIOSFODNN7EXAMPLE"), "");
+        assert_eq!(find_prefix("ghp_ABC123"), "ghp_");
+    }
+
+    #[test]
+    fn test_classify_chars() {
+        assert_eq!(classify_chars("abcDEF123"), "[a-zA-Z0-9]");
+        assert_eq!(classify_chars("abc123"), "[a-z0-9]");
+        assert_eq!(classify_chars("ABC123"), "[A-Z0-9]");
+        assert_eq!(classify_chars("abc-DEF_123"), "[a-zA-Z0-9_-]");
+        assert_eq!(classify_chars("12345"), "[0-9]");
+    }
+
+    #[test]
+    fn test_suggest_pattern() {
+        let s = suggest_pattern("qbo_xK9mL2nP4qR7tY0wZ3aB5cD8eF1gH6iX", 0);
+        assert_eq!(s.pattern, "qbo_[a-zA-Z0-9]{32}");
+        assert!(s.description.contains("qbo_"));
+
+        let s = suggest_pattern("AKIAIOSFODNN7EXAMPLE", 1);
+        // No prefix detected, full string is alphanumeric
+        assert!(s.pattern.contains("[A-Z0-9]{20}"));
+    }
+
+    #[test]
+    fn test_keyword_filtering() {
+        let rule = ScanRule {
+            id: "test".to_string(),
+            description: "test".to_string(),
+            regex: Regex::new(r"[a-zA-Z0-9]{24}").unwrap(),
+            keyword: Some("vercel".to_string()),
+        };
+
+        // Should match — keyword present
+        assert!(rule.regex.is_match("abcdefghijklmnopqrstuvwx"));
+        let line = "VERCEL_TOKEN=abcdefghijklmnopqrstuvwx";
+        let line_lower = line.to_lowercase();
+        assert!(line_lower.contains(rule.keyword.as_ref().unwrap()));
+
+        // Should not match — keyword absent
+        let line2 = "OTHER_TOKEN=abcdefghijklmnopqrstuvwx";
+        let line2_lower = line2.to_lowercase();
+        assert!(!line2_lower.contains(rule.keyword.as_ref().unwrap()));
+    }
+
+    #[test]
+    fn test_custom_rules_from_config() {
+        let mut config = Config::default();
+        config.scan.rules.push(crate::config::CustomScanRule {
+            id: "test-rule".to_string(),
+            description: "Test Rule".to_string(),
+            pattern: r"test_[a-z]{10}".to_string(),
+            keyword: None,
+        });
+
+        let rules = build_rules(&config).unwrap();
+        let custom = rules.iter().find(|r| r.id == "test-rule").unwrap();
+        assert!(custom.regex.is_match("test_abcdefghij"));
+        assert!(!custom.regex.is_match("test_short"));
     }
 }

@@ -95,6 +95,33 @@ s2 scan . --json
 
 Exit code 1 if secrets are found (blocks commits when used as a hook).
 
+### Custom Rules
+
+Add company-specific patterns to `~/.config/s2/config.toml`:
+
+```toml
+[[scan.rules]]
+id = "quickbooks-token"
+description = "QuickBooks Online API Token"
+pattern = 'qbo_[a-zA-Z0-9]{32}'
+
+[[scan.rules]]
+id = "vercel-token"
+description = "Vercel API Token"
+pattern = '[a-zA-Z0-9]{24}'
+keyword = "VERCEL"    # only flag if "VERCEL" appears on the same line
+```
+
+### Pattern Learning
+
+Test scan coverage against a file of known secrets and auto-generate rules for anything missed:
+
+```bash
+s2 scan --learn known-secrets.txt
+```
+
+Output shows which secrets are covered, suggests regex rules for gaps, and optionally appends them to your config.
+
 ### Pre-commit Hook
 
 ```bash

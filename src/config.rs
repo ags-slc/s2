@@ -27,6 +27,10 @@ pub struct Config {
     /// Hook configuration (Claude Code integration).
     #[serde(default)]
     pub hook: HookConfig,
+
+    /// Scan configuration (custom rules for secret detection).
+    #[serde(default)]
+    pub scan: ScanConfig,
 }
 
 fn default_provider_ttl() -> u64 {
@@ -110,6 +114,21 @@ impl HookConfig {
         }
         true
     }
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct ScanConfig {
+    #[serde(default)]
+    pub rules: Vec<CustomScanRule>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct CustomScanRule {
+    pub id: String,
+    pub description: String,
+    pub pattern: String,
+    #[serde(default)]
+    pub keyword: Option<String>,
 }
 
 impl Config {

@@ -97,7 +97,8 @@ fn main() {
             staged,
             json,
             entropy,
-        } => commands::scan::run(paths, staged, json, entropy),
+            learn,
+        } => commands::scan::run(&config, paths, staged, json, entropy, learn),
 
         Command::Hook { format } => commands::hook::run(&config, &format),
     };

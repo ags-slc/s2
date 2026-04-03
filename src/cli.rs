@@ -127,6 +127,10 @@ pub enum Command {
         /// Shannon entropy threshold for medium-confidence detection (default: 4.5)
         #[arg(long, default_value = "4.5")]
         entropy: f64,
+
+        /// Test coverage against a file of known secrets and suggest new rules
+        #[arg(long, value_name = "FILE")]
+        learn: Option<PathBuf>,
     },
 
     /// AI agent PreToolUse hook (reads JSON from stdin, emits JSON to stdout)
