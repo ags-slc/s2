@@ -96,6 +96,42 @@ Then use profiles:
 s2 exec -p aws -- terraform apply
 ```
 
+## Claude Code Integration
+
+s2 includes a hook that automatically injects secrets when AI agents run commands. No prompt engineering needed — the agent runs `aws s3 ls` and s2 transparently wraps it with `s2 exec`.
+
+### Setup
+
+1. Add a `[hook]` section to `~/.config/s2/config.toml`:
+
+```toml
+[hook]
+commands = ["aws", "terraform", "kubectl", "docker"]
+profile = "aws"       # or use: files = ["~/.secrets"]
+```
+
+2. Register the hook in `~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "s2 hook"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The agent runs `aws s3 ls` and s2 rewrites it to `s2 exec -p aws -- aws s3 ls`. Commands not in the `commands` list pass through untouched. `s2` commands are never wrapped (no infinite loops).
+
 ## Security Model
 
 ### How is this different from `source ~/.secrets`?
