@@ -66,7 +66,15 @@ impl ProviderRegistry {
         #[cfg(feature = "provider-vault")]
         {
             let cfg = provider_configs.get("vault");
-            providers.insert("vault".into(), Box::new(vault::VaultProvider::new(cfg)?));
+            match vault::VaultProvider::new(cfg) {
+                Ok(p) => {
+                    providers.insert("vault".into(), Box::new(p));
+                }
+                Err(_) => {
+                    // Vault not configured — skip (no address/VAULT_ADDR). Will error
+                    // at resolve time if a vault:// URI is actually used.
+                }
+            }
         }
 
         Ok(Self { providers })
