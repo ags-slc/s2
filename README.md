@@ -11,7 +11,7 @@ curl -fsSL https://raw.githubusercontent.com/ags-slc/s2/main/install.sh | sh
 Or with Rust:
 
 ```bash
-cargo install s2            # from crates.io
+cargo install s2-simple-secrets   # from crates.io
 cargo install --path .      # from source
 ```
 

@@ -1,5 +1,5 @@
 [package]
-name = "s2"
+name = "s2-simple-secrets"
 version = "0.1.0"
 edition = "2021"
 description = "Simple Secrets — inject secrets into subprocesses without ambient environment exposure"
