@@ -7,5 +7,6 @@ pub mod hook;
 pub mod init;
 pub mod list;
 pub mod redact;
+pub mod scan;
 pub mod set;
 pub mod unset;

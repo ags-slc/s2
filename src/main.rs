@@ -92,6 +92,13 @@ fn main() {
             commands::redact::run(&config, registry, cache, files, profile)
         }
 
+        Command::Scan {
+            paths,
+            staged,
+            json,
+            entropy,
+        } => commands::scan::run(paths, staged, json, entropy),
+
         Command::Hook { format } => commands::hook::run(&config, &format),
     };
 

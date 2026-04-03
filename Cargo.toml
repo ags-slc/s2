@@ -33,6 +33,10 @@ nix = { version = "0.29", features = ["process", "fs", "signal"] }
 # Multi-pattern replacement
 aho-corasick = "1"
 
+# Secret scanning
+regex = "1"
+ignore = "0.4"
+
 # Config
 toml = "0.8"
 serde = { version = "1", features = ["derive"] }

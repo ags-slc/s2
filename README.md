@@ -73,6 +73,42 @@ kubectl logs pod | s2 redact -f ~/.secrets
 | `s2 decrypt` | Decrypt an age-encrypted file |
 | `s2 edit` | Decrypt → $EDITOR → re-encrypt |
 | `s2 redact` | Pipe filter replacing secret values with `[REDACTED]` |
+| `s2 scan` | Scan files for leaked secrets (regex patterns + entropy analysis) |
+
+## Secret Scanning
+
+Detect leaked secrets before they're committed.
+
+```bash
+# Scan current directory
+s2 scan .
+
+# Scan specific files
+s2 scan src/config.rs .env
+
+# Pre-commit hook mode (only git staged files)
+s2 scan --staged
+
+# JSON output for CI
+s2 scan . --json
+```
+
+Exit code 1 if secrets are found (blocks commits when used as a hook).
+
+### Pre-commit Hook
+
+```bash
+# Set up as a git pre-commit hook
+echo '#!/bin/sh
+exec s2 scan --staged' > .git/hooks/pre-commit
+chmod +x .git/hooks/pre-commit
+```
+
+### What it Detects
+
+**High confidence** (pattern matching): AWS access keys, GitHub tokens, Stripe keys, Slack tokens/webhooks, PEM private keys, JWTs, Google API keys, Twilio/SendGrid keys, generic secret assignments.
+
+**Medium confidence** (entropy analysis): Quoted strings with high Shannon entropy (>4.5) and length >20 characters. Catches secrets without a known pattern format.
 
 ## Configuration
 

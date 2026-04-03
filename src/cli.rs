@@ -111,6 +111,24 @@ pub enum Command {
         path: PathBuf,
     },
 
+    /// Scan files for leaked secrets (pattern matching + entropy analysis)
+    Scan {
+        /// Files or directories to scan (default: current directory)
+        paths: Vec<PathBuf>,
+
+        /// Only scan git staged files (pre-commit hook mode)
+        #[arg(long)]
+        staged: bool,
+
+        /// Output as JSON (one finding per line)
+        #[arg(long)]
+        json: bool,
+
+        /// Shannon entropy threshold for medium-confidence detection (default: 4.5)
+        #[arg(long, default_value = "4.5")]
+        entropy: f64,
+    },
+
     /// AI agent PreToolUse hook (reads JSON from stdin, emits JSON to stdout)
     Hook {
         /// Agent hook format
