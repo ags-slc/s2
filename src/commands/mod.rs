@@ -1,4 +1,5 @@
 pub mod check;
+pub mod hook;
 pub mod decrypt;
 pub mod edit;
 pub mod encrypt;

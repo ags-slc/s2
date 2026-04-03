@@ -107,6 +107,9 @@ pub enum Command {
         path: PathBuf,
     },
 
+    /// Claude Code PreToolUse hook (reads JSON from stdin, emits JSON to stdout)
+    Hook,
+
     /// Pipe filter: replace secret values with [REDACTED]
     Redact {
         /// Secret files to load (values become redaction patterns)

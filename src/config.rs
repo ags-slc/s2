@@ -23,6 +23,10 @@ pub struct Config {
     /// Per-provider configuration.
     #[serde(default)]
     pub providers: HashMap<String, ProviderConfig>,
+
+    /// Hook configuration (Claude Code integration).
+    #[serde(default)]
+    pub hook: HookConfig,
 }
 
 fn default_provider_ttl() -> u64 {
@@ -47,6 +51,65 @@ pub struct Profile {
 
     #[serde(default)]
     pub keys: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct HookConfig {
+    /// Profile to use when wrapping commands.
+    #[serde(default)]
+    pub profile: Option<String>,
+
+    /// Explicit secret files to use (profile takes precedence if set).
+    #[serde(default)]
+    pub files: Vec<String>,
+
+    /// Commands to wrap with s2 exec. If empty, wraps all non-skipped commands.
+    #[serde(default)]
+    pub commands: Vec<String>,
+
+    /// Commands to never wrap. "s2" is always implicitly skipped.
+    #[serde(default)]
+    pub skip: Vec<String>,
+}
+
+impl HookConfig {
+    /// Build the s2 exec flags (e.g. ["-p", "aws"] or ["-f", "~/.secrets"]).
+    /// Returns None if no files/profile configured.
+    pub fn exec_args(&self, default_files: &[String]) -> Option<Vec<String>> {
+        if let Some(ref profile) = self.profile {
+            Some(vec!["-p".to_string(), profile.clone()])
+        } else if !self.files.is_empty() {
+            let mut args = Vec::new();
+            for f in &self.files {
+                args.push("-f".to_string());
+                args.push(f.clone());
+            }
+            Some(args)
+        } else if !default_files.is_empty() {
+            let mut args = Vec::new();
+            for f in default_files {
+                args.push("-f".to_string());
+                args.push(f.clone());
+            }
+            Some(args)
+        } else {
+            None
+        }
+    }
+
+    /// Check if a root command should be wrapped.
+    pub fn should_wrap(&self, root_cmd: &str) -> bool {
+        if root_cmd.is_empty() || root_cmd == "s2" {
+            return false;
+        }
+        if self.skip.iter().any(|s| s == root_cmd) {
+            return false;
+        }
+        if !self.commands.is_empty() {
+            return self.commands.iter().any(|c| c == root_cmd);
+        }
+        true
+    }
 }
 
 impl Config {

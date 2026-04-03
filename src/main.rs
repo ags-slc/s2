@@ -17,17 +17,7 @@ use config::Config;
 use provider::cache::ProviderCache;
 use provider::ProviderRegistry;
 
-fn main() {
-    let cli = Cli::parse();
-    let config = match Config::load() {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("s2: config error: {}", e);
-            std::process::exit(1);
-        }
-    };
-
-    // Build provider registry and cache (used by commands that load secrets)
+fn init_providers(config: &Config) -> (ProviderRegistry, ProviderCache) {
     let registry = match ProviderRegistry::from_config(&config.providers) {
         Ok(r) => r,
         Err(e) => {
@@ -39,9 +29,21 @@ fn main() {
     let cache = match ProviderCache::load() {
         Ok(c) => c,
         Err(e) => {
-            // Cache errors are non-fatal — start with empty cache
             eprintln!("s2: warning: could not load provider cache: {}", e);
             ProviderCache::default()
+        }
+    };
+
+    (registry, cache)
+}
+
+fn main() {
+    let cli = Cli::parse();
+    let config = match Config::load() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("s2: config error: {}", e);
+            std::process::exit(1);
         }
     };
 
@@ -52,9 +54,13 @@ fn main() {
             profile,
             clean_env,
             cmd,
-        } => commands::exec::run(&config, registry, cache, files, keys, profile, clean_env, cmd),
+        } => {
+            let (registry, cache) = init_providers(&config);
+            commands::exec::run(&config, registry, cache, files, keys, profile, clean_env, cmd)
+        }
 
         Command::List { files, profile } => {
+            let (registry, cache) = init_providers(&config);
             commands::list::run(&config, registry, cache, files, profile)
         }
 
@@ -62,7 +68,10 @@ fn main() {
             keys,
             files,
             profile,
-        } => commands::check::run(&config, registry, cache, keys, files, profile),
+        } => {
+            let (registry, cache) = init_providers(&config);
+            commands::check::run(&config, registry, cache, keys, files, profile)
+        }
 
         Command::Init { path } => commands::init::run(path),
 
@@ -77,8 +86,11 @@ fn main() {
         Command::Edit { path } => commands::edit::run(path),
 
         Command::Redact { files, profile } => {
+            let (registry, cache) = init_providers(&config);
             commands::redact::run(&config, registry, cache, files, profile)
         }
+
+        Command::Hook => commands::hook::run(&config),
     };
 
     if let Err(e) = result {
