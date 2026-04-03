@@ -62,7 +62,7 @@ serde_json = "1"
 reqwest = { version = "0.12", features = ["blocking", "json"], optional = true }
 
 [features]
-default = []
+default = ["provider-ssm"]
 provider-ssm = ["dep:aws-config", "dep:aws-sdk-ssm", "dep:tokio"]
 provider-vault = ["dep:reqwest"]
 

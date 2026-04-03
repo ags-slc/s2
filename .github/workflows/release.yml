@@ -28,7 +28,7 @@ jobs:
           rustup target add ${{ matrix.target }}
 
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release --all-features --target ${{ matrix.target }}
 
       - name: Package
         run: |
