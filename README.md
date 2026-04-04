@@ -73,11 +73,11 @@ kubectl logs pod | s2 redact -f ~/.secrets
 | `s2 decrypt` | Decrypt an age-encrypted file |
 | `s2 edit` | Decrypt → $EDITOR → re-encrypt |
 | `s2 redact` | Pipe filter replacing secret values with `[REDACTED]` |
-| `s2 scan` | Scan files for leaked secrets (regex patterns + entropy analysis) |
+| `s2 scan` | Scan files for secrets (regex patterns + entropy analysis) |
 
 ## Secret Scanning
 
-Detect leaked secrets before they're committed.
+Detect secrets in files before they're committed.
 
 ```bash
 # Scan current directory

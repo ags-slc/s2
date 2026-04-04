@@ -111,7 +111,7 @@ pub enum Command {
         path: PathBuf,
     },
 
-    /// Scan files for leaked secrets (pattern matching + entropy analysis)
+    /// Scan files for secrets (pattern matching + entropy analysis)
     Scan {
         /// Files or directories to scan (default: current directory)
         paths: Vec<PathBuf>,
