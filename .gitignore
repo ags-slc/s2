@@ -1,3 +1,4 @@
 /target
 .claude/
 test.secrets
+test_secrets_all.env
