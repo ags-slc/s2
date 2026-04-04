@@ -30,6 +30,7 @@ cargo fmt --check                  # format check
 - **Encrypted by default** — `s2 init` creates encrypted files. `s2 set`/`s2 unset` transparently decrypt, modify, and re-encrypt. Pass `--no-encrypt` to init for plaintext.
 - **Keychain with file fallback** — passphrases stored in macOS Keychain or Linux Secret Service (D-Bus). On headless systems without a keyring, falls back to `~/.config/s2/keys/` with 0600 permissions.
 - **Feature flags**: `provider-ssm` (default), `provider-vault` (opt-in). SSM deps are heavy; Vault needs `reqwest`.
+- **`s2 scan` must be instant** — designed as a pre-commit hook, runs on every commit. No network calls, no heavy deps. Pure compiled regexes + O(n) Shannon entropy. No external databases, API calls, or signature downloads.
 
 ## Platform Support
 

@@ -51,6 +51,19 @@ fn is_sensitive_key(key: &str) -> bool {
     SENSITIVE_KEY_PATTERNS.iter().any(|pat| lower.contains(pat))
 }
 
+/// Common placeholder/default values that should not trigger entropy detection.
+/// Only applied in the entropy branch — pattern matches (Layer 1) always fire.
+fn is_placeholder_value(value: &str) -> bool {
+    let lower = value.to_lowercase();
+    lower.contains("changeme")
+        || lower.contains("replace_me")
+        || lower.contains("replaceme")
+        || lower.contains("placeholder")
+        || lower.contains("insert_your")
+        || lower.contains("insert-your")
+        || (lower.contains("your") && lower.contains("here"))
+}
+
 // --- Rules ---
 
 fn build_rules(config: &Config) -> Result<Vec<ScanRule>, S2Error> {
@@ -106,6 +119,40 @@ fn build_rules(config: &Config) -> Result<Vec<ScanRule>, S2Error> {
             "SendGrid API Key",
             r"SG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}",
         ),
+        // Provider-specific patterns for tokens that evade entropy detection
+        // (hex-charset tokens cap at ~4.0 entropy, below the 4.5 generic threshold)
+        (
+            "shopify-token",
+            "Shopify Access Token",
+            r"\bshpat_[a-fA-F0-9]{32,}\b",
+        ),
+        (
+            "shopify-shared-secret",
+            "Shopify App Shared Secret",
+            r"\bshpss_[a-fA-F0-9]{32,}\b",
+        ),
+        (
+            "gitlab-pat",
+            "GitLab Personal Access Token",
+            r"\bglpat-[a-zA-Z0-9_-]{20,}\b",
+        ),
+        (
+            "digitalocean-token",
+            "DigitalOcean Token",
+            r"\bdop_v1_[a-fA-F0-9]{64}\b",
+        ),
+        (
+            "anthropic-key",
+            "Anthropic API Key",
+            r"\bsk-ant-[a-zA-Z0-9_-]{80,}\b",
+        ),
+        (
+            "openai-key",
+            "OpenAI API Key",
+            r"\bsk-proj-[a-zA-Z0-9]{40,}\b",
+        ),
+        ("npm-token", "npm Access Token", r"\bnpm_[a-zA-Z0-9]{36,}\b"),
+        ("pypi-token", "PyPI API Token", r"\bpypi-[a-zA-Z0-9]{50,}\b"),
     ];
 
     let mut rules: Vec<ScanRule> = builtins
@@ -230,6 +277,11 @@ fn test_value(
     }
 
     // Layer 2: entropy analysis on the value
+    // Skip placeholder/default values — they inflate false positives on sensitive keys
+    if is_placeholder_value(value) {
+        return None;
+    }
+
     // Sensitive key name lowers the threshold
     let effective_threshold = if key.is_some_and(is_sensitive_key) {
         (entropy_threshold - 1.0).max(2.5)
@@ -812,6 +864,117 @@ mod tests {
         if let Some((rule_id, _, _)) = result {
             assert_ne!(rule_id, "vercel");
         }
+    }
+
+    #[test]
+    fn test_detects_shopify_token() {
+        let rules = build_rules(&default_config()).unwrap();
+        // Build value dynamically to avoid GitHub Push Protection flagging the source
+        let value = format!("{}_{}", "shpat", "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6");
+        let result = test_value(&value, None, &rules, 4.5);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().0, "shopify-token");
+    }
+
+    #[test]
+    fn test_detects_shopify_shared_secret() {
+        let rules = build_rules(&default_config()).unwrap();
+        let value = format!("{}_{}", "shpss", "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6");
+        let result = test_value(&value, None, &rules, 4.5);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().0, "shopify-shared-secret");
+    }
+
+    #[test]
+    fn test_detects_gitlab_pat() {
+        let rules = build_rules(&default_config()).unwrap();
+        let result = test_value("glpat-a1b2c3d4e5f6a7b8c9d0", None, &rules, 4.5);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().0, "gitlab-pat");
+    }
+
+    #[test]
+    fn test_detects_anthropic_key() {
+        let rules = build_rules(&default_config()).unwrap();
+        let result = test_value(
+            "sk-ant-api03-ZTuILlyrPeiioAqBznqJNysxkb3OCbBYDrRz1rWELo-JeZXsGadlfhlM1sr7FGWRRez24mfeqrEtnzkvRb4SQ-a4QM4gAA",
+            None,
+            &rules,
+            4.5,
+        );
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().0, "anthropic-key");
+    }
+
+    #[test]
+    fn test_detects_openai_key() {
+        let rules = build_rules(&default_config()).unwrap();
+        let result = test_value(
+            "sk-proj-abc123DEF456ghi789JKL012mno345PQR678stu901VWX234yz",
+            None,
+            &rules,
+            4.5,
+        );
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().0, "openai-key");
+    }
+
+    #[test]
+    fn test_detects_npm_token() {
+        let rules = build_rules(&default_config()).unwrap();
+        let result = test_value(
+            "npm_MjQ0NjcxOTkzNDEyOmRhNjkwNWZkLWNlZDItNDQ4MA",
+            None,
+            &rules,
+            4.5,
+        );
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().0, "npm-token");
+    }
+
+    #[test]
+    fn test_detects_pypi_token() {
+        let rules = build_rules(&default_config()).unwrap();
+        let result = test_value(
+            "pypi-AgEIcHlwaS5vcmcCJGY3ZjBlNzQ5LWRkZWYtNGI1YS04MjEzLTQzZGRlNDU5NDYyOA",
+            None,
+            &rules,
+            4.5,
+        );
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().0, "pypi-token");
+    }
+
+    #[test]
+    fn test_placeholder_values_not_flagged() {
+        let rules = build_rules(&default_config()).unwrap();
+        // These should NOT be detected despite sensitive key names
+        assert!(test_value("changeme12345", Some("TEST_PASSWORD"), &rules, 4.5).is_none());
+        assert!(test_value(
+            "REPLACE_ME_WITH_REAL_TOKEN",
+            Some("SAMPLE_TOKEN"),
+            &rules,
+            4.5,
+        )
+        .is_none());
+        assert!(test_value("your-api-key-here", Some("EXAMPLE_KEY"), &rules, 4.5).is_none());
+        assert!(test_value("insert_your_token_here", Some("AUTH_TOKEN"), &rules, 4.5,).is_none());
+        assert!(test_value("placeholder_value", Some("SECRET_KEY"), &rules, 4.5).is_none());
+    }
+
+    #[test]
+    fn test_placeholder_filter_does_not_block_pattern_matches() {
+        let rules = build_rules(&default_config()).unwrap();
+        // A value that contains "changeme" but also matches a pattern should still be caught
+        // (placeholder filter is only in the entropy branch)
+        let result = test_value(
+            "-----BEGIN RSA PRIVATE KEY-----",
+            Some("CHANGEME_KEY"),
+            &rules,
+            4.5,
+        );
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().0, "private-key");
     }
 
     #[test]

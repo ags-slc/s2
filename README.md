@@ -133,9 +133,9 @@ chmod +x .git/hooks/pre-commit
 
 ### What it Detects
 
-**High confidence** (pattern matching): AWS access keys, GitHub tokens, Stripe keys, Slack tokens/webhooks, PEM private keys, JWTs, Google API keys, Twilio/SendGrid keys, generic secret assignments.
+**High confidence** (pattern matching): AWS access keys, GitHub tokens, Stripe keys, Slack tokens/webhooks, PEM private keys, JWTs, Google API keys, Twilio/SendGrid keys, Shopify tokens, GitLab PATs, DigitalOcean tokens, Anthropic/OpenAI API keys, npm/PyPI tokens.
 
-**Medium confidence** (entropy analysis): Quoted strings with high Shannon entropy (>4.5) and length >20 characters. Catches secrets without a known pattern format.
+**Medium confidence** (entropy analysis): Strings with high Shannon entropy (>4.5) and length >20 characters. Catches secrets without a known pattern format. Placeholder values (`changeme`, `REPLACE_ME`, `your-*-here`, etc.) are automatically excluded to reduce false positives.
 
 ## Configuration
 

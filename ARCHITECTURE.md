@@ -24,6 +24,7 @@
 3. **Fail secure** — refuses to read files with permissions other than 0600. Values never appear in CLI args, logs, or Debug/Display output.
 4. **Zero residue** — `secrecy::SecretString` and `zeroize` clear secret memory on drop. After `execve`, the original process (and its memory) is gone.
 5. **Local-first** — works fully offline with local encrypted files. Remote providers (SSM, Vault) are optional and cached with offline fallback.
+6. **Scan must be instant** — `s2 scan` is designed as a pre-commit hook and must add negligible latency to every commit. No network calls, no heavy dependencies. Detection uses compiled regexes and O(n) entropy calculation only — no external databases, no API calls, no signature downloads.
 
 ---
 
