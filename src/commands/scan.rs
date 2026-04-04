@@ -1,10 +1,11 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::process;
 
 use regex::Regex;
 use secrecy::ExposeSecret;
+use sha2::{Digest, Sha256};
 
 use crate::config::Config;
 use crate::error::S2Error;
@@ -27,6 +28,9 @@ struct Finding {
     #[serde(rename = "match")]
     matched: String,
     confidence: String,
+    hash: String,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    allowed: bool,
 }
 
 // --- Key name patterns that boost confidence ---
@@ -215,6 +219,85 @@ fn redact_match(s: &str) -> String {
     format!("{}{}", prefix, "\u{2588}".repeat(suffix_len.min(16)))
 }
 
+fn compute_finding_hash(key: Option<&str>, raw_value: &str) -> String {
+    let mut hasher = Sha256::new();
+    if let Some(k) = key {
+        hasher.update(k.as_bytes());
+        hasher.update(b"\0");
+    }
+    hasher.update(raw_value.as_bytes());
+    let result = hasher.finalize();
+    format!("{:x}", result)[..16].to_string()
+}
+
+// --- Allowlist ---
+
+fn load_allowlist() -> HashSet<String> {
+    let path = Path::new(".s2allowlist");
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return HashSet::new();
+    };
+    content
+        .lines()
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .map(|l| l.to_string())
+        .collect()
+}
+
+fn is_allowed(hash: &str, allowlist: &HashSet<String>) -> bool {
+    allowlist
+        .iter()
+        .any(|entry| entry.starts_with(hash) || hash.starts_with(entry))
+}
+
+fn add_to_allowlist(hashes: &[String]) -> Result<(), S2Error> {
+    for h in hashes {
+        if h.len() < 8 {
+            eprintln!("s2: hash too short (minimum 8 characters): {}", h);
+            process::exit(1);
+        }
+        if !h.chars().all(|c| c.is_ascii_hexdigit()) {
+            eprintln!("s2: invalid hash (must be hex): {}", h);
+            process::exit(1);
+        }
+    }
+
+    let path = Path::new(".s2allowlist");
+    let existing = load_allowlist();
+
+    let added: Vec<&str> = hashes
+        .iter()
+        .filter(|h| {
+            if existing.contains(h.as_str()) {
+                eprintln!("Already in .s2allowlist: {}", h);
+                false
+            } else {
+                true
+            }
+        })
+        .map(|h| h.as_str())
+        .collect();
+
+    if added.is_empty() {
+        return Ok(());
+    }
+
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|e| S2Error::Config(format!("failed to open .s2allowlist: {}", e)))?;
+
+    for h in &added {
+        writeln!(file, "{}", h)
+            .map_err(|e| S2Error::Config(format!("failed to write .s2allowlist: {}", e)))?;
+    }
+
+    eprintln!("Added {} hash(es) to .s2allowlist", added.len());
+    Ok(())
+}
+
 fn collect_staged_files() -> Result<Vec<PathBuf>, S2Error> {
     let output = process::Command::new("git")
         .args(["diff", "--cached", "--name-only", "--diff-filter=ACMR"])
@@ -341,8 +424,10 @@ fn scan_file(
                     key: Some(entry.key.clone()),
                     rule: rule_id,
                     description,
+                    hash: compute_finding_hash(Some(&entry.key), value),
                     matched: redact_match(value),
                     confidence,
+                    allowed: false,
                 });
             }
         }
@@ -364,8 +449,10 @@ fn scan_file(
                 key: None,
                 rule: rule_id,
                 description,
+                hash: compute_finding_hash(None, line),
                 matched: redact_match(line),
                 confidence,
+                allowed: false,
             });
         }
     }
@@ -639,8 +726,13 @@ pub fn run(
     json: bool,
     entropy_threshold: f64,
     learn: Option<PathBuf>,
+    allow: Vec<String>,
 ) -> Result<(), S2Error> {
     let rules = build_rules(config)?;
+
+    if !allow.is_empty() {
+        return add_to_allowlist(&allow);
+    }
 
     if let Some(ref learn_file) = learn {
         return run_learn(learn_file, &rules, entropy_threshold);
@@ -666,46 +758,77 @@ pub fn run(
         }
     }
 
+    // Apply allowlist
+    let allowlist = load_allowlist();
+    let mut allowed_count = 0;
+    if !allowlist.is_empty() {
+        for finding in &mut all_findings {
+            if is_allowed(&finding.hash, &allowlist) {
+                finding.allowed = true;
+                allowed_count += 1;
+            }
+        }
+    }
+
     if json {
         for finding in &all_findings {
             println!("{}", serde_json::to_string(finding).unwrap());
         }
-    } else if all_findings.is_empty() {
-        eprintln!("No secrets found ({} files scanned)", files.len());
     } else {
-        let mut by_file: Vec<&Finding> = all_findings.iter().collect();
-        by_file.sort_by(|a, b| a.file.cmp(&b.file).then(a.line.cmp(&b.line)));
+        let active: Vec<&Finding> = all_findings.iter().filter(|f| !f.allowed).collect();
 
-        for f in &by_file {
-            let confidence = if f.confidence == "high" {
-                ""
+        if active.is_empty() {
+            if allowed_count > 0 {
+                eprintln!(
+                    "No secrets found ({} files scanned, {} allowed)",
+                    files.len(),
+                    allowed_count
+                );
             } else {
-                " [medium]"
+                eprintln!("No secrets found ({} files scanned)", files.len());
+            }
+        } else {
+            let mut by_file = active;
+            by_file.sort_by(|a, b| a.file.cmp(&b.file).then(a.line.cmp(&b.line)));
+
+            for f in &by_file {
+                let confidence = if f.confidence == "high" {
+                    ""
+                } else {
+                    " [medium]"
+                };
+                let key_display = f
+                    .key
+                    .as_ref()
+                    .map(|k| format!("{}  ", k))
+                    .unwrap_or_default();
+                eprintln!(
+                    "  {}:{}  {}{}  {}  {}{}",
+                    f.file, f.line, key_display, f.rule, f.matched, f.hash, confidence
+                );
+            }
+
+            let file_count = by_file
+                .iter()
+                .map(|f| &f.file)
+                .collect::<HashSet<_>>()
+                .len();
+            let allowed_msg = if allowed_count > 0 {
+                format!(" ({} allowed)", allowed_count)
+            } else {
+                String::new()
             };
-            let key_display = f
-                .key
-                .as_ref()
-                .map(|k| format!("{}  ", k))
-                .unwrap_or_default();
             eprintln!(
-                "  {}:{}  {}{}  {}{}",
-                f.file, f.line, key_display, f.rule, f.matched, confidence
+                "\n{} secret(s) found in {} file(s){}",
+                by_file.len(),
+                file_count,
+                allowed_msg
             );
         }
-
-        let file_count = by_file
-            .iter()
-            .map(|f| &f.file)
-            .collect::<std::collections::HashSet<_>>()
-            .len();
-        eprintln!(
-            "\n{} secret(s) found in {} file(s)",
-            all_findings.len(),
-            file_count
-        );
     }
 
-    if all_findings.is_empty() {
+    let active_count = all_findings.iter().filter(|f| !f.allowed).count();
+    if active_count == 0 {
         Ok(())
     } else {
         process::exit(1);
@@ -991,5 +1114,49 @@ mod tests {
         let result = test_value("test_abcdefghij", None, &rules, 4.5);
         assert!(result.is_some());
         assert_eq!(result.unwrap().0, "test-rule");
+    }
+
+    #[test]
+    fn test_compute_finding_hash_deterministic() {
+        let h1 = compute_finding_hash(Some("DB_PASSWORD"), "s3cr3t_v4lue!");
+        let h2 = compute_finding_hash(Some("DB_PASSWORD"), "s3cr3t_v4lue!");
+        assert_eq!(h1.len(), 16);
+        assert!(h1.chars().all(|c| c.is_ascii_hexdigit()));
+        assert_eq!(h1, h2);
+    }
+
+    #[test]
+    fn test_compute_finding_hash_differs_by_key() {
+        let h1 = compute_finding_hash(Some("DB_PASSWORD"), "s3cr3t_v4lue!");
+        let h2 = compute_finding_hash(Some("OTHER_KEY"), "s3cr3t_v4lue!");
+        assert_ne!(h1, h2);
+    }
+
+    #[test]
+    fn test_compute_finding_hash_none_vs_empty_key() {
+        let h1 = compute_finding_hash(None, "some value");
+        let h2 = compute_finding_hash(Some(""), "some value");
+        assert_ne!(h1, h2);
+    }
+
+    #[test]
+    fn test_is_allowed_exact_match() {
+        let mut allowlist = HashSet::new();
+        allowlist.insert("a1b2c3d4e5f6a7b8".to_string());
+        assert!(is_allowed("a1b2c3d4e5f6a7b8", &allowlist));
+        assert!(!is_allowed("ffffffffffffffff", &allowlist));
+    }
+
+    #[test]
+    fn test_is_allowed_prefix_match() {
+        let mut allowlist = HashSet::new();
+        allowlist.insert("a1b2c3d4e5f6a7b8".to_string());
+        // Short hash matches full entry via prefix
+        assert!(is_allowed("a1b2c3d4e5f6a7b8", &allowlist));
+        // Finding hash is longer, entry is prefix
+        let mut short_allowlist = HashSet::new();
+        short_allowlist.insert("a1b2c3d4".to_string());
+        assert!(is_allowed("a1b2c3d4e5f6a7b8", &short_allowlist));
+        assert!(!is_allowed("ffffffffffffffff", &short_allowlist));
     }
 }

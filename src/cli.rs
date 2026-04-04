@@ -131,6 +131,10 @@ pub enum Command {
         /// Test coverage against a file of known secrets and suggest new rules
         #[arg(long, value_name = "FILE")]
         learn: Option<PathBuf>,
+
+        /// Add finding hashes to .s2allowlist (skips them in future scans)
+        #[arg(long, value_name = "HASH")]
+        allow: Vec<String>,
     },
 
     /// AI agent PreToolUse hook (reads JSON from stdin, emits JSON to stdout)

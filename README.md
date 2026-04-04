@@ -122,6 +122,25 @@ s2 scan --learn known-secrets.txt
 
 Output shows which secrets are covered, suggests regex rules for gaps, and optionally appends them to your config.
 
+### Allowlist
+
+When a finding is a false positive, allow it by hash so it doesn't block future scans:
+
+```bash
+# Scan shows a hash for each finding
+s2 scan --staged
+#   .env:5  DB_PASSWORD  high-entropy  xK9m████████  97eb0519eeb61ed6
+
+# Allow a specific finding
+s2 scan --allow 97eb0519eeb61ed6
+
+# Future scans skip that finding
+s2 scan --staged
+#   No secrets found (1 files scanned, 1 allowed)
+```
+
+Hashes are stored in `.s2allowlist` in the current directory. Commit it to share with your team, or gitignore it for personal use. Prefix matching is supported (minimum 8 characters).
+
 ### Pre-commit Hook
 
 ```bash
