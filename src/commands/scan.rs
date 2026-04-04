@@ -407,36 +407,86 @@ fn suggest_pattern(value: &str, index: usize) -> SuggestedRule {
     }
 }
 
+/// Returns true if a value is clearly not a secret (config, boolean, URL without creds, etc.)
+fn is_non_secret_value(value: &str) -> bool {
+    let v = value.trim();
+
+    // Empty
+    if v.is_empty() {
+        return true;
+    }
+
+    // Booleans
+    if matches!(
+        v.to_lowercase().as_str(),
+        "true" | "false" | "yes" | "no" | "on" | "off" | "enabled" | "disabled"
+    ) {
+        return true;
+    }
+
+    // Pure numeric (integers, floats)
+    if v.parse::<f64>().is_ok() {
+        return true;
+    }
+
+    // Short low-entropy values (hostnames, regions, env names)
+    if v.len() < 8 && shannon_entropy(v) < 3.0 {
+        return true;
+    }
+
+    // URLs without credentials (no user:pass@ pattern)
+    if (v.starts_with("http://") || v.starts_with("https://")) && !v.contains('@') {
+        return true;
+    }
+
+    // Well-known non-secret values
+    if matches!(
+        v,
+        "localhost" | "development" | "production" | "staging" | "test"
+    ) {
+        return true;
+    }
+
+    false
+}
+
 fn run_learn(learn_file: &Path, rules: &[ScanRule], entropy_threshold: f64) -> Result<(), S2Error> {
     let content = std::fs::read_to_string(learn_file)?;
 
-    // Try parsing as KEY=value format
-    let values: Vec<(String, String)> =
-        if let Ok(entries) = parser::parse_file(learn_file, &content) {
-            entries
-                .iter()
-                .map(|e| (e.key.clone(), e.value.expose_secret().to_string()))
-                .filter(|(_, v)| !v.is_empty())
-                .collect()
-        } else {
-            // Fallback: each non-empty, non-comment line is a raw value
-            content
-                .lines()
-                .map(|l| l.trim())
-                .filter(|l| !l.is_empty() && !l.starts_with('#'))
-                .map(|l| ("(raw)".to_string(), l.to_string()))
-                .collect()
-        };
+    // Parse each line individually as KEY=value, falling back to raw for unparseable lines
+    let all_values: Vec<(String, String)> = content
+        .lines()
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .filter_map(|line| {
+            // Try KEY=value parse on this single line
+            if let Ok(entries) = parser::parse_file(learn_file, line) {
+                entries
+                    .into_iter()
+                    .next()
+                    .map(|e| (e.key, e.value.expose_secret().to_string()))
+            } else {
+                // Unparseable — treat as raw value
+                Some(("(raw)".to_string(), line.to_string()))
+            }
+        })
+        .filter(|(_, v)| !v.is_empty())
+        .collect();
 
-    if values.is_empty() {
-        eprintln!("No secrets found in {}", learn_file.display());
+    if all_values.is_empty() {
+        eprintln!("No entries found in {}", learn_file.display());
         return Ok(());
     }
 
     let mut covered = Vec::new();
     let mut missed = Vec::new();
+    let mut skipped = Vec::new();
 
-    for (i, (key, value)) in values.iter().enumerate() {
+    for (i, (key, value)) in all_values.iter().enumerate() {
+        if is_non_secret_value(value) {
+            skipped.push((i + 1, key.clone(), value.clone()));
+            continue;
+        }
         if let Some((rule_id, _, _)) = test_value(value, Some(key), rules, entropy_threshold) {
             covered.push((i + 1, key.clone(), redact_match(value), rule_id));
         } else {
@@ -444,10 +494,12 @@ fn run_learn(learn_file: &Path, rules: &[ScanRule], entropy_threshold: f64) -> R
         }
     }
 
+    let secret_count = covered.len() + missed.len();
     eprintln!(
-        "Coverage: {}/{} secrets detected by existing rules\n",
+        "Coverage: {}/{} secrets detected ({} non-secret values skipped)\n",
         covered.len(),
-        values.len()
+        secret_count,
+        skipped.len()
     );
 
     for (num, key, display, rule_id) in &covered {
