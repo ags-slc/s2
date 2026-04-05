@@ -143,8 +143,31 @@ Hashes are stored in `.s2allowlist` in the current directory. Commit it to share
 
 ### Pre-commit Hook
 
+**Global (all repos):**
+
 ```bash
-# Set up as a git pre-commit hook
+# Create global hooks directory
+mkdir -p ~/.config/git/hooks
+
+# Create the hook (chains to repo-local hooks if they exist)
+cat > ~/.config/git/hooks/pre-commit << 'EOF'
+#!/bin/sh
+s2 scan --staged || exit 1
+
+# Chain to repo-local hook if it exists
+if [ -x .git/hooks/pre-commit ]; then
+    exec .git/hooks/pre-commit
+fi
+EOF
+chmod +x ~/.config/git/hooks/pre-commit
+
+# Tell git to use it
+git config --global core.hooksPath ~/.config/git/hooks
+```
+
+**Per-repo:**
+
+```bash
 echo '#!/bin/sh
 exec s2 scan --staged' > .git/hooks/pre-commit
 chmod +x .git/hooks/pre-commit

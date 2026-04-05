@@ -435,6 +435,7 @@ fn scan_file(
     }
 
     // Fallback: scan each line with regex (for non-KEY=value files)
+    // Only pattern matches — entropy detection without key context is too noisy on prose
     for (line_num, line) in content.lines().enumerate() {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
@@ -443,6 +444,9 @@ fn scan_file(
         if let Some((rule_id, description, confidence)) =
             test_value(line, None, rules, entropy_threshold)
         {
+            if rule_id == "high-entropy" {
+                continue;
+            }
             findings.push(Finding {
                 file: display_path.clone(),
                 line: line_num + 1,
