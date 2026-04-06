@@ -7,13 +7,13 @@
 
 | | s2 scan (before) | s2 scan (after) | GitHub PP |
 |---|---|---|---|
-| **Total detections** | **33** | **34** | **8** |
+| **Total detections** | **33** | **35** | **8** |
 | Pattern-matched (high confidence) | 19 | 26 | 8 |
 | Entropy-detected, sensitive key (high) | 7 | 5 | 0 |
-| Entropy-detected, generic (medium) | 7 | 3 | 0 |
+| Entropy-detected, generic (medium) | 7 | 4 | 0 |
 | False positives | 2 | 0 | 0 |
 
-**Improvements made:** Added 8 provider patterns (Shopify, GitLab, DigitalOcean, Anthropic, OpenAI, npm, PyPI), placeholder value filtering, and provider labeling. Net: +3 detections (7 promoted from entropy to pattern, 2 FPs removed, 3 new catches).
+**Improvements made:** Added 8 provider patterns (Shopify, GitLab, DigitalOcean, Anthropic, OpenAI, npm, PyPI), placeholder value filtering, and provider labeling. Net: +4 detections (4 promoted from entropy to pattern, 2 FPs removed, 4 new catches from previously-missed providers).
 
 ## GitHub Push Protection detections (8)
 
@@ -27,8 +27,8 @@ Discovered across 2 push rounds (GitHub reveals secrets in batches of 5).
 | 1 | Twilio API Key | `SK...` | Mutual |
 | 1 | SendGrid API Key | `SG....` | Mutual |
 | 2 | Slack API Token | `xoxb-...` | Mutual |
-| 2 | Shopify Access Token | `shpat_...` | GitHub-only |
-| 2 | Shopify App Shared Secret | `shpss_...` | GitHub-only |
+| 2 | Shopify Access Token | `shpat_...` | Mutual (pattern added) |
+| 2 | Shopify App Shared Secret | `shpss_...` | Mutual (pattern added) |
 
 ## GitHub Push Protection misses (passed through on push)
 
@@ -48,7 +48,7 @@ These secrets remained in the file when the push succeeded:
 | DigitalOcean, Supabase, Datadog, Heroku, Azure | Fail validation or not partners |
 | All Category 3 (passwords, JWTs, PEM, webhooks, etc.) | No generic/entropy detection in GitHub PP |
 
-## s2 scan detections (33)
+## s2 scan detections (35)
 
 ```
 AWS_ACCESS_KEY_ID               aws-access-key       high
@@ -61,10 +61,14 @@ GOOGLE_MAPS_KEY                 google-api-key       high
 TWILIO_API_KEY                  twilio-key           high
 SENDGRID_API_KEY                sendgrid-key         high
 SLACK_BOT_TOKEN                 slack-token          high
-ANTHROPIC_BATCH_RUNNER          high-entropy         medium
-OPENAI_BATCH_RUNNER             high-entropy         medium
-NPM_PUBLISH_HANDLE              high-entropy         medium
-PYPI_PUBLISH_HANDLE             high-entropy         medium
+SHOPIFY_PAT                     shopify-token        high   (was missed — pattern added)
+SHOPIFY_SHARED_SECRET           shopify-shared-secret high  (was missed — pattern added)
+GITLAB_PAT                      gitlab-pat           high   (was missed — pattern added)
+DIGITALOCEAN_TOKEN              digitalocean-token   high   (was missed — pattern added)
+ANTHROPIC_BATCH_RUNNER          anthropic-key        high   (was entropy — pattern added)
+OPENAI_BATCH_RUNNER             openai-key           high   (was entropy — pattern added)
+NPM_PUBLISH_HANDLE              npm-token            high   (was entropy — pattern added)
+PYPI_PUBLISH_HANDLE             pypi-token           high   (was entropy — pattern added)
 DB_PASSWORD                     high-entropy         high
 API_SECRET                      high-entropy         high
 REDIS_AUTH_CREDENTIAL           high-entropy         high
@@ -82,23 +86,26 @@ MULTI_CONFIG                    stripe-key           high
 PRIVATE_KEY_PEM                 private-key          high
 WEBHOOK_INLINE                  slack-webhook        high
 QUOTED_AWS                      aws-access-key       high
-SAMPLE_TOKEN                    high-entropy         high   (false positive — placeholder)
-TEST_PASSWORD                   high-entropy         high   (false positive — placeholder)
 ```
 
 ## s2 scan misses (not detected)
 
 | Entry | Value | Why missed |
 |-------|-------|-----------|
-| Shopify PAT (`shpat_...`) | entropy 4.24, non-sensitive key | No built-in pattern; entropy < 4.5 |
-| Shopify Shared Secret (`shpss_...`) | entropy 4.24, non-sensitive key | Same |
-| GitLab PAT (`glpat-...`) | entropy 4.29, non-sensitive key | Same |
-| DigitalOcean (`dop_v1_...`) | entropy ~4.1, non-sensitive key | Same |
-| Supabase (`sbp_...`) | entropy ~4.1, non-sensitive key | Same |
+| Supabase (`sbp_...`) | entropy ~4.1, non-sensitive key | No built-in pattern; entropy < 4.5 |
 | Datadog (pure hex) | entropy 3.91 | Hex-only charset caps entropy |
 | Heroku (UUID) | entropy ~4.06 | UUID format, low entropy |
 | Azure (UUID) | entropy ~3.97 | Same |
 | `EXAMPLE_KEY=your-api-key-here` | entropy 3.29 | Below sensitive threshold (3.5) |
+
+**Previously missed, now detected** (patterns added in v0.5.0):
+
+| Entry | Pattern | Confidence |
+|-------|---------|------------|
+| Shopify PAT (`shpat_...`) | `shopify-token` | high |
+| Shopify Shared Secret (`shpss_...`) | `shopify-shared-secret` | high |
+| GitLab PAT (`glpat-...`) | `gitlab-pat` | high |
+| DigitalOcean (`dop_v1_...`) | `digitalocean-token` | high |
 
 ## Key findings
 
@@ -110,21 +117,21 @@ GitHub doesn't just regex-match — it sends candidate tokens to provider APIs f
 
 ### 2. s2's entropy detection is its primary differentiator
 
-14 of 33 detections (42%) were entropy-based with no pattern match. This catches passwords, connection strings, JWTs, PEM keys, and tokens from providers without built-in rules. GitHub has zero generic detection capability.
+9 of 35 detections (26%) are entropy-based with no pattern match. This catches passwords, connection strings, JWTs, PEM keys, and tokens from providers without built-in rules. GitHub has zero generic detection capability.
 
-### 3. Hex-charset tokens exploit s2's entropy threshold
+### 3. Hex-charset tokens exploit entropy thresholds (mitigated)
 
-Tokens using only hex characters (0-9, a-f) have maximum theoretical entropy of log2(16) = 4.0, always below s2's 4.5 generic threshold. This is why Shopify, Datadog, DigitalOcean, and similar tokens slip through even when they're 32+ characters long.
+Tokens using only hex characters (0-9, a-f) have maximum theoretical entropy of log2(16) = 4.0, always below s2's 4.5 generic threshold. This is why Datadog and similar tokens without built-in patterns still slip through.
 
-**Possible fix:** Add built-in patterns for common hex-prefix tokens, or reduce entropy threshold for values with recognized prefixes.
+**Mitigation applied:** Added prefix-based patterns for Shopify (`shpat_`, `shpss_`), GitLab (`glpat-`), and DigitalOcean (`dop_v1_`) so they're now caught regardless of entropy. Remaining hex-charset providers (Datadog, Supabase) could benefit from the same treatment.
 
 ### 4. Sensitive key threshold is 3.5, not 2.5
 
 The code computes `(entropy_threshold - 1.0).max(2.5)` = `max(3.5, 2.5)` = **3.5**. This correctly rejected `your-api-key-here` (entropy 3.29) but caught `changeme12345` (entropy 3.55) and `REPLACE_ME_WITH_REAL_TOKEN` (entropy 3.64).
 
-### 5. s2 has 2 false positives from placeholder values
+### 5. Placeholder false positives eliminated
 
-`SAMPLE_TOKEN=REPLACE_ME_WITH_REAL_TOKEN` and `TEST_PASSWORD=changeme12345` are placeholder/default values flagged because their key names contain sensitive words. GitHub PP produced zero false positives.
+`SAMPLE_TOKEN=REPLACE_ME_WITH_REAL_TOKEN` and `TEST_PASSWORD=changeme12345` were previously flagged as false positives because their key names contain sensitive words. Placeholder value filtering now correctly skips these. Both s2 and GitHub PP now produce zero false positives on this benchmark.
 
 ## Test artifacts
 
