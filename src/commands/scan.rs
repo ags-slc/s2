@@ -71,57 +71,73 @@ fn is_placeholder_value(value: &str) -> bool {
 // --- Rules ---
 
 fn build_rules(config: &Config) -> Result<Vec<ScanRule>, S2Error> {
-    let builtins: Vec<(&str, &str, &str)> = vec![
+    // (id, description, pattern, optional keyword gate)
+    let builtins: Vec<(&str, &str, &str, Option<&str>)> = vec![
         (
             "aws-access-key",
             "AWS Access Key",
             r"\b(AKIA|A3T[A-Z0-9]|ASIA|ABIA|ACCA)[A-Z2-7]{16}\b",
+            None,
         ),
         (
             "github-token",
             "GitHub Token",
             r"\b(ghp|gho|ghu|ghs|ghr)_[0-9a-zA-Z]{36}\b",
+            None,
         ),
         (
             "github-fine-pat",
             "GitHub Fine-Grained PAT",
             r"github_pat_\w{82}",
+            None,
         ),
         (
             "stripe-key",
             "Stripe Secret Key",
             r"\b[sr]k_(test|live|prod)_[a-zA-Z0-9]{10,99}\b",
+            None,
         ),
         (
             "slack-token",
             "Slack Token",
             r"xox[bpears]-[0-9a-zA-Z\-]{10,}",
+            None,
         ),
         (
             "slack-webhook",
             "Slack Webhook URL",
             r"hooks\.slack\.com/services/[A-Za-z0-9+/]{43,}",
+            None,
         ),
         (
             "private-key",
             "PEM Private Key",
             r"-----BEGIN [A-Z ]*PRIVATE KEY-----",
+            None,
         ),
         (
             "jwt",
             "JSON Web Token",
             r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b",
+            None,
         ),
         (
             "google-api-key",
             "Google API Key",
             r"AIza[0-9A-Za-z\-_]{35}",
+            None,
         ),
-        ("twilio-key", "Twilio API Key", r"\bSK[0-9a-fA-F]{32}\b"),
+        (
+            "twilio-key",
+            "Twilio API Key",
+            r"\bSK[0-9a-fA-F]{32}\b",
+            None,
+        ),
         (
             "sendgrid-key",
             "SendGrid API Key",
             r"SG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}",
+            None,
         ),
         // Provider-specific patterns for tokens that evade entropy detection
         // (hex-charset tokens cap at ~4.0 entropy, below the 4.5 generic threshold)
@@ -129,43 +145,86 @@ fn build_rules(config: &Config) -> Result<Vec<ScanRule>, S2Error> {
             "shopify-token",
             "Shopify Access Token",
             r"\bshpat_[a-fA-F0-9]{32,}\b",
+            None,
         ),
         (
             "shopify-shared-secret",
             "Shopify App Shared Secret",
             r"\bshpss_[a-fA-F0-9]{32,}\b",
+            None,
         ),
         (
             "gitlab-pat",
             "GitLab Personal Access Token",
             r"\bglpat-[a-zA-Z0-9_-]{20,}\b",
+            None,
         ),
         (
             "digitalocean-token",
             "DigitalOcean Token",
             r"\bdop_v1_[a-fA-F0-9]{64}\b",
+            None,
         ),
         (
             "anthropic-key",
             "Anthropic API Key",
             r"\bsk-ant-[a-zA-Z0-9_-]{80,}\b",
+            None,
         ),
         (
             "openai-key",
             "OpenAI API Key",
             r"\bsk-proj-[a-zA-Z0-9]{40,}\b",
+            None,
         ),
-        ("npm-token", "npm Access Token", r"\bnpm_[a-zA-Z0-9]{36,}\b"),
-        ("pypi-token", "PyPI API Token", r"\bpypi-[a-zA-Z0-9]{50,}\b"),
+        (
+            "npm-token",
+            "npm Access Token",
+            r"\bnpm_[a-zA-Z0-9]{36,}\b",
+            None,
+        ),
+        (
+            "pypi-token",
+            "PyPI API Token",
+            r"\bpypi-[a-zA-Z0-9]{50,}\b",
+            None,
+        ),
+        // Prefix-based providers
+        (
+            "supabase-key",
+            "Supabase API Key",
+            r"\bsbp_[a-fA-F0-9]{40,}\b",
+            None,
+        ),
+        // Keyword-gated providers: generic value patterns that only fire when
+        // the key name contains the provider name, avoiding false positives
+        (
+            "datadog-key",
+            "Datadog API/App Key",
+            r"\b[a-fA-F0-9]{32,40}\b",
+            Some("datadog"),
+        ),
+        (
+            "heroku-key",
+            "Heroku API Key",
+            r"\b[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}\b",
+            Some("heroku"),
+        ),
+        (
+            "azure-key",
+            "Azure Secret",
+            r"\b[a-zA-Z0-9+/]{32,}={0,2}\b",
+            Some("azure"),
+        ),
     ];
 
     let mut rules: Vec<ScanRule> = builtins
         .into_iter()
-        .map(|(id, desc, pat)| ScanRule {
+        .map(|(id, desc, pat, kw)| ScanRule {
             id: id.to_string(),
             description: desc.to_string(),
             regex: Regex::new(pat).unwrap(),
-            keyword: None,
+            keyword: kw.map(|s| s.to_string()),
         })
         .collect();
 
@@ -1070,6 +1129,102 @@ mod tests {
         );
         assert!(result.is_some());
         assert_eq!(result.unwrap().0, "pypi-token");
+    }
+
+    #[test]
+    fn test_detects_supabase_key() {
+        let rules = build_rules(&default_config()).unwrap();
+        let value = format!("sbp_{}", "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6a7b8c9d0");
+        let result = test_value(&value, None, &rules, 4.5);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().0, "supabase-key");
+    }
+
+    #[test]
+    fn test_detects_datadog_key() {
+        let rules = build_rules(&default_config()).unwrap();
+        // Datadog keys are 32-char hex — requires keyword gate
+        let result = test_value(
+            "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+            Some("DATADOG_API_KEY"),
+            &rules,
+            4.5,
+        );
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().0, "datadog-key");
+    }
+
+    #[test]
+    fn test_datadog_key_requires_keyword() {
+        let rules = build_rules(&default_config()).unwrap();
+        // Same hex value without a datadog key name should NOT match the datadog rule
+        let result = test_value(
+            "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+            Some("SOME_HASH"),
+            &rules,
+            4.5,
+        );
+        if let Some((id, _, _)) = result {
+            assert_ne!(id, "datadog-key");
+        }
+    }
+
+    #[test]
+    fn test_detects_heroku_key() {
+        let rules = build_rules(&default_config()).unwrap();
+        // Heroku keys are UUIDs — requires keyword gate
+        let result = test_value(
+            "a1b2c3d4-e5f6-a7b8-c9d0-e1f2a3b4c5d6",
+            Some("HEROKU_API_KEY"),
+            &rules,
+            4.5,
+        );
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().0, "heroku-key");
+    }
+
+    #[test]
+    fn test_heroku_key_requires_keyword() {
+        let rules = build_rules(&default_config()).unwrap();
+        // UUID without heroku key name should NOT match the heroku rule
+        let result = test_value(
+            "a1b2c3d4-e5f6-a7b8-c9d0-e1f2a3b4c5d6",
+            Some("REQUEST_ID"),
+            &rules,
+            4.5,
+        );
+        if let Some((id, _, _)) = result {
+            assert_ne!(id, "heroku-key");
+        }
+    }
+
+    #[test]
+    fn test_detects_azure_key() {
+        let rules = build_rules(&default_config()).unwrap();
+        // Azure secrets are base64 — requires keyword gate
+        let result = test_value(
+            "dGhpcyBpcyBhIHRlc3QgYXp1cmUgc2VjcmV0IGtleQ==",
+            Some("AZURE_CLIENT_SECRET"),
+            &rules,
+            4.5,
+        );
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().0, "azure-key");
+    }
+
+    #[test]
+    fn test_azure_key_requires_keyword() {
+        let rules = build_rules(&default_config()).unwrap();
+        // Base64 without azure key name should NOT match the azure rule
+        let result = test_value(
+            "dGhpcyBpcyBhIHRlc3QgYXp1cmUgc2VjcmV0IGtleQ==",
+            Some("ENCODED_DATA"),
+            &rules,
+            4.5,
+        );
+        if let Some((id, _, _)) = result {
+            assert_ne!(id, "azure-key");
+        }
     }
 
     #[test]

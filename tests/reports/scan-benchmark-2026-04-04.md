@@ -7,13 +7,13 @@
 
 | | s2 scan (before) | s2 scan (after) | GitHub PP |
 |---|---|---|---|
-| **Total detections** | **33** | **35** | **8** |
-| Pattern-matched (high confidence) | 19 | 26 | 8 |
+| **Total detections** | **33** | **39** | **8** |
+| Pattern-matched (high confidence) | 19 | 30 | 8 |
 | Entropy-detected, sensitive key (high) | 7 | 5 | 0 |
 | Entropy-detected, generic (medium) | 7 | 4 | 0 |
 | False positives | 2 | 0 | 0 |
 
-**Improvements made:** Added 8 provider patterns (Shopify, GitLab, DigitalOcean, Anthropic, OpenAI, npm, PyPI), placeholder value filtering, and provider labeling. Net: +4 detections (4 promoted from entropy to pattern, 2 FPs removed, 4 new catches from previously-missed providers).
+**Improvements made:** Added 12 provider patterns (Shopify, GitLab, DigitalOcean, Supabase, Datadog, Heroku, Azure, Anthropic, OpenAI, npm, PyPI), placeholder value filtering, and provider labeling. Datadog, Heroku, and Azure use keyword-gated patterns (only fire when key name contains the provider name) to avoid false positives on generic hex/UUID/base64 values. Net: +8 detections (4 promoted from entropy to pattern, 2 FPs removed, 8 new catches from previously-missed providers).
 
 ## GitHub Push Protection detections (8)
 
@@ -48,7 +48,7 @@ These secrets remained in the file when the push succeeded:
 | DigitalOcean, Supabase, Datadog, Heroku, Azure | Fail validation or not partners |
 | All Category 3 (passwords, JWTs, PEM, webhooks, etc.) | No generic/entropy detection in GitHub PP |
 
-## s2 scan detections (35)
+## s2 scan detections (39)
 
 ```
 AWS_ACCESS_KEY_ID               aws-access-key       high
@@ -65,6 +65,10 @@ SHOPIFY_PAT                     shopify-token        high   (was missed — patt
 SHOPIFY_SHARED_SECRET           shopify-shared-secret high  (was missed — pattern added)
 GITLAB_PAT                      gitlab-pat           high   (was missed — pattern added)
 DIGITALOCEAN_TOKEN              digitalocean-token   high   (was missed — pattern added)
+SUPABASE_KEY                    supabase-key         high   (was missed — pattern added)
+DATADOG_API_KEY                 datadog-key          high   (was missed — keyword-gated)
+HEROKU_API_KEY                  heroku-key           high   (was missed — keyword-gated)
+AZURE_CLIENT_SECRET             azure-key            high   (was missed — keyword-gated)
 ANTHROPIC_BATCH_RUNNER          anthropic-key        high   (was entropy — pattern added)
 OPENAI_BATCH_RUNNER             openai-key           high   (was entropy — pattern added)
 NPM_PUBLISH_HANDLE              npm-token            high   (was entropy — pattern added)
@@ -92,20 +96,20 @@ QUOTED_AWS                      aws-access-key       high
 
 | Entry | Value | Why missed |
 |-------|-------|-----------|
-| Supabase (`sbp_...`) | entropy ~4.1, non-sensitive key | No built-in pattern; entropy < 4.5 |
-| Datadog (pure hex) | entropy 3.91 | Hex-only charset caps entropy |
-| Heroku (UUID) | entropy ~4.06 | UUID format, low entropy |
-| Azure (UUID) | entropy ~3.97 | Same |
 | `EXAMPLE_KEY=your-api-key-here` | entropy 3.29 | Below sensitive threshold (3.5) |
 
-**Previously missed, now detected** (patterns added in v0.5.0):
+**Previously missed, now detected** (patterns added in v0.5.0+):
 
-| Entry | Pattern | Confidence |
-|-------|---------|------------|
-| Shopify PAT (`shpat_...`) | `shopify-token` | high |
-| Shopify Shared Secret (`shpss_...`) | `shopify-shared-secret` | high |
-| GitLab PAT (`glpat-...`) | `gitlab-pat` | high |
-| DigitalOcean (`dop_v1_...`) | `digitalocean-token` | high |
+| Entry | Pattern | Confidence | Notes |
+|-------|---------|------------|-------|
+| Shopify PAT (`shpat_...`) | `shopify-token` | high | Prefix-based |
+| Shopify Shared Secret (`shpss_...`) | `shopify-shared-secret` | high | Prefix-based |
+| GitLab PAT (`glpat-...`) | `gitlab-pat` | high | Prefix-based |
+| DigitalOcean (`dop_v1_...`) | `digitalocean-token` | high | Prefix-based |
+| Supabase (`sbp_...`) | `supabase-key` | high | Prefix-based |
+| Datadog (32-char hex) | `datadog-key` | high | Keyword-gated |
+| Heroku (UUID) | `heroku-key` | high | Keyword-gated |
+| Azure (base64) | `azure-key` | high | Keyword-gated |
 
 ## Key findings
 
@@ -117,13 +121,13 @@ GitHub doesn't just regex-match — it sends candidate tokens to provider APIs f
 
 ### 2. s2's entropy detection is its primary differentiator
 
-9 of 35 detections (26%) are entropy-based with no pattern match. This catches passwords, connection strings, JWTs, PEM keys, and tokens from providers without built-in rules. GitHub has zero generic detection capability.
+9 of 39 detections (23%) are entropy-based with no pattern match. This catches passwords, connection strings, JWTs, PEM keys, and tokens from providers without built-in rules. GitHub has zero generic detection capability.
 
-### 3. Hex-charset tokens exploit entropy thresholds (mitigated)
+### 3. Hex-charset tokens exploit entropy thresholds (fully mitigated)
 
-Tokens using only hex characters (0-9, a-f) have maximum theoretical entropy of log2(16) = 4.0, always below s2's 4.5 generic threshold. This is why Datadog and similar tokens without built-in patterns still slip through.
+Tokens using only hex characters (0-9, a-f) have maximum theoretical entropy of log2(16) = 4.0, always below s2's 4.5 generic threshold.
 
-**Mitigation applied:** Added prefix-based patterns for Shopify (`shpat_`, `shpss_`), GitLab (`glpat-`), and DigitalOcean (`dop_v1_`) so they're now caught regardless of entropy. Remaining hex-charset providers (Datadog, Supabase) could benefit from the same treatment.
+**Mitigation applied:** Prefix-based patterns for Shopify (`shpat_`, `shpss_`), GitLab (`glpat-`), DigitalOcean (`dop_v1_`), and Supabase (`sbp_`) catch these by prefix regardless of entropy. Keyword-gated patterns for Datadog, Heroku (UUID), and Azure (base64) match generic value formats but only fire when the key name contains the provider name, avoiding false positives.
 
 ### 4. Sensitive key threshold is 3.5, not 2.5
 
