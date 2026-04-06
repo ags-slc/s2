@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand, ValueEnum};
+use clap_complete::Shell;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -135,6 +136,10 @@ pub enum Command {
         /// Add finding hashes to .s2allowlist (skips them in future scans)
         #[arg(long, value_name = "HASH")]
         allow: Vec<String>,
+
+        /// List all built-in and custom scan rules, then exit
+        #[arg(long)]
+        list_rules: bool,
     },
 
     /// AI agent PreToolUse hook (reads JSON from stdin, emits JSON to stdout)
@@ -142,6 +147,12 @@ pub enum Command {
         /// Agent hook format
         #[arg(long, value_enum, default_value = "claude")]
         format: HookFormat,
+    },
+
+    /// Generate shell completion scripts
+    Completions {
+        /// Shell to generate completions for
+        shell: Shell,
     },
 
     /// Pipe filter: replace secret values with [REDACTED]

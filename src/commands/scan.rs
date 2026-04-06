@@ -782,6 +782,31 @@ fn config_path() -> PathBuf {
 
 // --- Entry point ---
 
+fn print_rules_summary(rules: &[ScanRule], config: &Config) -> Result<(), S2Error> {
+    let custom_count = config.scan.rules.len();
+    let builtin_count = rules.len() - custom_count;
+
+    println!(
+        "s2 scan rules ({} built-in, {} custom)\n",
+        builtin_count, custom_count
+    );
+    let header = format!("{:<28} {:<38} {}", "ID", "DESCRIPTION", "GATE");
+    println!("{header}");
+    println!("{}", "-".repeat(header.len()));
+
+    for rule in rules {
+        let gate = match &rule.keyword {
+            Some(kw) => format!("keyword: {}", kw),
+            None => String::new(),
+        };
+        println!("{:<28} {:<38} {}", rule.id, rule.description, gate);
+    }
+
+    println!("\n+ entropy detection (Shannon threshold, applies to KEY=VALUE patterns)");
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
 pub fn run(
     config: &Config,
     paths: Vec<PathBuf>,
@@ -790,8 +815,13 @@ pub fn run(
     entropy_threshold: f64,
     learn: Option<PathBuf>,
     allow: Vec<String>,
+    list_rules: bool,
 ) -> Result<(), S2Error> {
     let rules = build_rules(config)?;
+
+    if list_rules {
+        return print_rules_summary(&rules, config);
+    }
 
     if !allow.is_empty() {
         return add_to_allowlist(&allow);

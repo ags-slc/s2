@@ -31,6 +31,19 @@ cargo install --path .      # from source
 
 **Windows:** use [WSL](https://learn.microsoft.com/en-us/windows/wsl/install) and follow the Linux instructions.
 
+### Shell Completions
+
+```bash
+# Bash
+s2 completions bash > ~/.bash_completion.d/s2
+
+# Zsh
+s2 completions zsh > ~/.zfunc/_s2
+
+# Fish
+s2 completions fish > ~/.config/fish/completions/s2.fish
+```
+
 ## Quick Start
 
 ```bash
@@ -74,6 +87,7 @@ kubectl logs pod | s2 redact -f ~/.secrets
 | `s2 edit` | Decrypt → $EDITOR → re-encrypt |
 | `s2 redact` | Pipe filter replacing secret values with `[REDACTED]` |
 | `s2 scan` | Scan files for secrets (regex patterns + entropy analysis) |
+| `s2 completions` | Generate shell completion scripts (bash, zsh, fish, powershell) |
 
 ## Secret Scanning
 
@@ -94,6 +108,14 @@ s2 scan . --json
 ```
 
 Exit code 1 if secrets are found (blocks commits when used as a hook).
+
+### List Rules
+
+See all built-in and custom scan rules:
+
+```bash
+s2 scan --list-rules
+```
 
 ### Custom Rules
 

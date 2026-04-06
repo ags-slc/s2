@@ -10,7 +10,7 @@ mod permissions;
 mod provider;
 mod store;
 
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 
 use cli::{Cli, Command};
 use config::Config;
@@ -99,7 +99,15 @@ fn main() {
             entropy,
             learn,
             allow,
-        } => commands::scan::run(&config, paths, staged, json, entropy, learn, allow),
+            list_rules,
+        } => commands::scan::run(
+            &config, paths, staged, json, entropy, learn, allow, list_rules,
+        ),
+
+        Command::Completions { shell } => {
+            clap_complete::generate(shell, &mut Cli::command(), "s2", &mut std::io::stdout());
+            Ok(())
+        }
 
         Command::Hook { format } => commands::hook::run(&config, &format),
     };
