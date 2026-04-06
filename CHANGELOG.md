@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-04-06
+
 ### Added
 - `s2 completions` command for shell completion scripts (bash, zsh, fish, powershell)
 - `s2 scan --list-rules` flag to display all built-in and custom scan rules
@@ -77,7 +79,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Provider cache with TTL and offline fallback
 - Binary distribution via GitHub Releases, crates.io, and curl installer
 
-[Unreleased]: https://github.com/ags-slc/s2/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/ags-slc/s2/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/ags-slc/s2/compare/v0.5.1...v1.0.0
 [0.5.1]: https://github.com/ags-slc/s2/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/ags-slc/s2/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/ags-slc/s2/compare/v0.3.0...v0.4.0
