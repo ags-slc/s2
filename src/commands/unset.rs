@@ -19,7 +19,7 @@ pub fn run(config: &Config, key: String, file: Option<PathBuf>) -> Result<(), S2
     let raw = std::fs::read(&path)?;
 
     let (entries, was_encrypted) = if crypto::is_age_encrypted(&raw) {
-        let plaintext = crypto::decrypt_file_content(&path, &raw)?;
+        let plaintext = crypto::decrypt_file_content(&path, &raw, config.biometric)?;
         (parser::parse_file(&path, &plaintext)?, true)
     } else {
         let content = String::from_utf8(raw).map_err(|e| S2Error::ParseError {
@@ -41,7 +41,7 @@ pub fn run(config: &Config, key: String, file: Option<PathBuf>) -> Result<(), S2
     let content = parser::serialize_entries(&entries);
     if was_encrypted {
         let file_key = keychain::file_key(&path);
-        let passphrase = keychain::get_passphrase(&file_key)?;
+        let passphrase = keychain::get_passphrase(&file_key, config.biometric)?;
         let encrypted = crypto::encrypt_with_passphrase(content.as_bytes(), &passphrase)?;
         std::fs::write(&path, &encrypted)?;
     } else {

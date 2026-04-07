@@ -327,3 +327,11 @@ Before the rewrite logic, the hook checks if a command would expose secrets. Eva
 **Decision:** The guard compares command tokens against secret file paths using exact string match after tilde expansion, not filesystem canonicalization.
 
 **Why:** The hook must run in <5ms with no file I/O. `fs::canonicalize` requires stat syscalls and resolves symlinks — too expensive and unnecessary. The threat model is AI agents being social-engineered into running obvious commands (`cat ~/.secrets`), not adversaries crafting symlink chains. Exact matching catches the real attacks while maintaining the performance constraint. Defense in depth: the guard is one layer alongside encryption at rest, 0600 permissions, and `SecretString` zeroization.
+
+### ADR-7: Biometric via Keychain Access Control
+
+**Decision:** Biometric authentication uses macOS Keychain's `SecAccessControl` with `BIOMETRY_CURRENT_SET` flag, not the LocalAuthentication framework.
+
+**Why:** When a keychain item has biometric access control, `SecItemCopyMatching` (the retrieve API) automatically triggers the OS-native Touch ID dialog. No separate biometric prompt code is needed. The `security-framework` crate provides safe Rust wrappers for `SecAccessControl` and `PasswordOptions`. Existing keychain items (stored without biometric ACL) are auto-migrated on next access: read from regular keyring, re-store with biometric flag, delete old entry.
+
+**Tradeoff:** Items stored with `BIOMETRY_CURRENT_SET` cannot fall back to password on macOS — if Touch ID fails (e.g., too many attempts), the user must wait or use their device passcode. This is the standard macOS Keychain behavior and matches user expectations for biometric-protected items.

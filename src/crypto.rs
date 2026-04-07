@@ -16,9 +16,14 @@ pub fn is_age_encrypted(content: &[u8]) -> bool {
 }
 
 /// Decrypt an age-encrypted file using the passphrase from the keychain.
-pub fn decrypt_file_content(path: &Path, encrypted: &[u8]) -> Result<String, S2Error> {
+/// When `biometric` is true, requires Touch ID on macOS.
+pub fn decrypt_file_content(
+    path: &Path,
+    encrypted: &[u8],
+    biometric: bool,
+) -> Result<String, S2Error> {
     let key = keychain::file_key(path);
-    let passphrase = keychain::get_passphrase(&key)?;
+    let passphrase = keychain::get_passphrase(&key, biometric)?;
 
     decrypt_with_passphrase(encrypted, &passphrase)
 }

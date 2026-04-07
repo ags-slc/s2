@@ -49,7 +49,7 @@ impl SecretStore {
 
         let raw_bytes = std::fs::read(&canonical)?;
         let content = if crypto::is_age_encrypted(&raw_bytes) {
-            crypto::decrypt_file_content(&canonical, &raw_bytes)?
+            crypto::decrypt_file_content(&canonical, &raw_bytes, config.biometric)?
         } else {
             String::from_utf8(raw_bytes).map_err(|e| S2Error::ParseError {
                 path: canonical.clone(),
