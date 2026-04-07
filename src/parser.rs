@@ -48,8 +48,9 @@ fn parse_line(line: &str) -> Option<ParsedEntry> {
     let eq_pos = line.find('=')?;
     let key = line[..eq_pos].trim();
 
-    // Validate key: must be non-empty, alphanumeric + underscore
-    if key.is_empty() || !key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+    // Validate key: must be non-empty, alphanumeric + underscore, or "*" (prefix import)
+    if key.is_empty() || (key != "*" && !key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'))
+    {
         return None;
     }
 
@@ -241,5 +242,13 @@ mod tests {
         assert_eq!(parsed.len(), 2);
         assert_eq!(parsed[0].value.expose_secret(), "value");
         assert_eq!(parsed[1].value.expose_secret(), "has spaces");
+    }
+
+    #[test]
+    fn test_glob_key_for_prefix_import() {
+        let entries = parse_file(Path::new("test"), "*=ssm:///prod/app/\n").unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].key, "*");
+        assert_eq!(entries[0].value.expose_secret(), "ssm:///prod/app/");
     }
 }

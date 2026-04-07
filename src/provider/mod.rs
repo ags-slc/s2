@@ -40,6 +40,19 @@ pub trait SecretProvider: Send + Sync {
 
     /// Human-readable name for audit logs.
     fn display_name(&self) -> &str;
+
+    /// Resolve all parameters under a path prefix.
+    /// Returns Vec of (full_parameter_name, value) pairs.
+    fn resolve_prefix(
+        &self,
+        _uri: &SecretUri,
+        _recursive: bool,
+    ) -> Result<Vec<(String, SecretString)>, S2Error> {
+        Err(S2Error::Provider(format!(
+            "{} does not support prefix fetching",
+            self.display_name()
+        )))
+    }
 }
 
 /// Registry of all compiled-in providers.
@@ -154,23 +167,62 @@ pub fn resolve_entries(
                 .and_then(|pc| pc.ttl_seconds)
                 .unwrap_or(config.provider_ttl_seconds);
 
-            let (secret, wrote_cache) = resolve_single(&uri, provider, cache, ttl)?;
+            if entry.key == "*" {
+                // Prefix expansion: resolve all params under this path
+                let prefix = uri.path.trim_end_matches('/');
+                let prefix_with_slash = format!("{prefix}/");
+                let recursive = uri.fragment.as_deref() != Some("shallow");
 
-            if wrote_cache {
-                cache_dirty = true;
+                let params = provider.resolve_prefix(&uri, recursive)?;
+
+                audit::log_access(
+                    config,
+                    "provider-prefix",
+                    &format!(
+                        "scheme={} provider={} prefix={} count={}",
+                        uri.scheme,
+                        provider.display_name(),
+                        uri.path,
+                        params.len()
+                    ),
+                );
+
+                for (name, value) in &params {
+                    let cache_key = format!("{}:///{}", uri.scheme, name);
+                    cache.insert(cache_key, value, ttl);
+                }
+                if !params.is_empty() {
+                    cache_dirty = true;
+                }
+
+                for (name, value) in params {
+                    let env_key = param_to_env_key(&name, &prefix_with_slash);
+                    let source_uri = format!("{}:///{}", uri.scheme, name);
+                    resolved.push(ParsedEntry {
+                        key: env_key,
+                        value,
+                        source_uri: Some(source_uri),
+                    });
+                }
+            } else {
+                let (secret, wrote_cache) = resolve_single(&uri, provider, cache, ttl)?;
+
+                if wrote_cache {
+                    cache_dirty = true;
+                }
+
+                audit::log_access(
+                    config,
+                    "provider",
+                    &format!("scheme={} provider={}", uri.scheme, provider.display_name()),
+                );
+
+                resolved.push(ParsedEntry {
+                    key: entry.key,
+                    value: secret,
+                    source_uri: Some(uri.raw),
+                });
             }
-
-            audit::log_access(
-                config,
-                "provider",
-                &format!("scheme={} provider={}", uri.scheme, provider.display_name()),
-            );
-
-            resolved.push(ParsedEntry {
-                key: entry.key,
-                value: secret,
-                source_uri: Some(uri.raw),
-            });
         } else {
             resolved.push(entry);
         }
@@ -220,6 +272,18 @@ fn resolve_single(
     }
 }
 
+/// Convert an SSM parameter name to an environment variable key.
+/// Strips the prefix, replaces `/`, `-`, `.` with `_`, uppercases.
+/// Example: "/prod/app/db-password" with prefix "/prod/app/" → "DB_PASSWORD"
+fn param_to_env_key(param_name: &str, prefix: &str) -> String {
+    let stripped = param_name
+        .strip_prefix(prefix)
+        .unwrap_or(param_name)
+        .trim_start_matches('/');
+
+    stripped.replace(['/', '-', '.'], "_").to_uppercase()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -261,5 +325,45 @@ mod tests {
         assert!(parse_uri("just-a-plain-value").is_none());
         assert!(parse_uri("key=value").is_none());
         assert!(parse_uri("").is_none());
+    }
+
+    #[test]
+    fn test_param_to_env_key_simple() {
+        assert_eq!(
+            param_to_env_key("/prod/app/db_password", "/prod/app/"),
+            "DB_PASSWORD"
+        );
+    }
+
+    #[test]
+    fn test_param_to_env_key_nested() {
+        assert_eq!(
+            param_to_env_key("/prod/app/db/password", "/prod/app/"),
+            "DB_PASSWORD"
+        );
+    }
+
+    #[test]
+    fn test_param_to_env_key_hyphens() {
+        assert_eq!(
+            param_to_env_key("/prod/app/api-key", "/prod/app/"),
+            "API_KEY"
+        );
+    }
+
+    #[test]
+    fn test_param_to_env_key_dots() {
+        assert_eq!(
+            param_to_env_key("/prod/app/my.dotted.name", "/prod/app/"),
+            "MY_DOTTED_NAME"
+        );
+    }
+
+    #[test]
+    fn test_param_to_env_key_deeply_nested() {
+        assert_eq!(
+            param_to_env_key("/prod/app/services/auth/token", "/prod/app/"),
+            "SERVICES_AUTH_TOKEN"
+        );
     }
 }
