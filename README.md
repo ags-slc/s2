@@ -269,10 +269,17 @@ jobs:
 If your CI runner has AWS access, s2 can pull secrets directly from SSM — no pipeline variables needed:
 
 ```bash
-# .secrets
+# .secrets — individual parameters
 DB_PASSWORD=ssm:///prod/apps/myapp/secrets/DB_PASSWORD
 API_KEY=ssm:///prod/apps/myapp/secrets/API_KEY
+
+# Or import all parameters under a prefix at once
+*=ssm:///prod/apps/myapp/secrets/
 ```
+
+The `*=ssm:///prefix/` syntax auto-discovers all parameters under the path and injects them as environment variables. Parameter names are converted: `/prod/apps/myapp/secrets/db_password` becomes `DB_PASSWORD` (prefix stripped, `/`/`-`/`.` replaced with `_`, uppercased).
+
+By default, nested paths are included (recursive). Use `#shallow` to fetch only immediate children: `*=ssm:///prefix/#shallow`.
 
 ```yaml
 - name: Run migrations

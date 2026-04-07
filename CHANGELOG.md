@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- SSM path-prefix import: `*=ssm:///prefix/` auto-discovers and injects all parameters under a path
+  - Recursive by default, use `#shallow` fragment for immediate children only
+  - Parameter names converted to env vars (strip prefix, replace `/`/`-`/`.` with `_`, uppercase)
+  - Individual results cached per-parameter for fine-grained TTL
+  - Requires `ssm:GetParametersByPath` IAM permission
+
 ## [1.1.0] - 2026-04-07
 
 ### Added
