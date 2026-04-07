@@ -286,6 +286,27 @@ commands = ["aws", "terraform", "kubectl", "docker"]
 profile = "aws"       # or use: files = ["~/.secrets"]
 ```
 
+### Guard (Secret Exposure Protection)
+
+The hook includes a guard that blocks commands which would expose secrets to the agent. Enabled by default when hook files are configured.
+
+**What it blocks:**
+- **Env dumps**: bare `env`, `printenv` (allows `env VAR=val cmd` and `printenv HOME`)
+- **Secret file reads**: `cat`, `head`, `grep`, `base64`, `cp`, `curl`, etc. targeting a configured secret file
+- **Redirects & @-refs**: `< ~/.secrets`, `curl -d @~/.secrets`
+
+**Configuration:**
+
+```toml
+[hook.guard]
+enabled = true                              # default: true
+env_deny = ["env", "printenv"]              # default
+extra_files = [".env.local", "~/.aws/credentials"]  # guard additional files
+# file_deny uses a sensible default (cat, head, grep, base64, cp, curl, etc.)
+```
+
+The guard resolves secret file paths from the same source as `s2 exec` (profile, files, or default_files) plus any `extra_files`.
+
 ### Claude Code / GitHub Copilot
 
 Add to `~/.claude/settings.json` (or `.github/copilot-instructions.md` hook config):
@@ -368,6 +389,8 @@ Copy `hooks/opencode/s2.ts` to `~/.config/opencode/plugins/s2.ts`. The plugin in
 | stdout/stderr | CLI never prints values; `SecretString` redacts Debug/Display |
 | Shell history | `set` reads from stdin, not args; `exec` args are the target command |
 | Files on disk | Encrypted at rest with keychain-backed passphrase (file-based fallback on headless Linux); 0600 enforced |
+| AI agent reads secret files | Hook guard blocks `cat`, `grep`, `base64`, etc. on secret files |
+| AI agent dumps environment | Hook guard blocks bare `env`/`printenv` |
 | `/proc/<pid>/environ` | `execvp` replaces process; `--clean-env` reduces surface |
 | Memory after use | `secrecy`/`zeroize` clear memory on drop |
 | Process listing (`ps`) | Values never in argv |

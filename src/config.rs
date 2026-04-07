@@ -74,6 +74,59 @@ pub struct HookConfig {
     /// Commands to never wrap. "s2" is always implicitly skipped.
     #[serde(default)]
     pub skip: Vec<String>,
+
+    /// Guard configuration for blocking dangerous commands.
+    #[serde(default)]
+    pub guard: GuardConfig,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GuardConfig {
+    /// Master switch. Default: true.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// Commands that dump environment variables. Blocked unconditionally.
+    #[serde(default = "default_env_deny")]
+    pub env_deny: Vec<String>,
+
+    /// Commands that read files. Blocked when targeting a secret file.
+    #[serde(default = "default_file_deny")]
+    pub file_deny: Vec<String>,
+
+    /// Additional file paths to guard beyond profile/files/default_files.
+    #[serde(default)]
+    pub extra_files: Vec<String>,
+}
+
+impl Default for GuardConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            env_deny: default_env_deny(),
+            file_deny: default_file_deny(),
+            extra_files: Vec::new(),
+        }
+    }
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_env_deny() -> Vec<String> {
+    ["env", "printenv"].iter().map(|s| s.to_string()).collect()
+}
+
+fn default_file_deny() -> Vec<String> {
+    [
+        "cat", "head", "tail", "less", "more", "bat", "xxd", "od", "hexdump", "strings", "base64",
+        "cp", "mv", "scp", "rsync", "curl", "wget", "python", "python3", "ruby", "perl", "node",
+        "source", ".", "vim", "vi", "nano", "emacs", "tee",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
 }
 
 impl HookConfig {
@@ -99,6 +152,33 @@ impl HookConfig {
         } else {
             None
         }
+    }
+
+    /// Resolve secret file paths to guard. Same priority as exec_args.
+    pub fn guarded_paths(&self, config: &Config) -> Vec<String> {
+        let mut paths: Vec<String> = Vec::new();
+
+        if let Some(ref profile) = self.profile {
+            if let Some(p) = config.profiles.get(profile) {
+                for f in &p.files {
+                    paths.push(expand_tilde(f).to_string_lossy().to_string());
+                }
+            }
+        } else if !self.files.is_empty() {
+            for f in &self.files {
+                paths.push(expand_tilde(f).to_string_lossy().to_string());
+            }
+        } else {
+            for f in &config.default_files {
+                paths.push(expand_tilde(f).to_string_lossy().to_string());
+            }
+        }
+
+        for f in &self.guard.extra_files {
+            paths.push(expand_tilde(f).to_string_lossy().to_string());
+        }
+
+        paths
     }
 
     /// Check if a root command should be wrapped.
