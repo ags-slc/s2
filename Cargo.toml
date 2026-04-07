@@ -76,6 +76,7 @@ pkg-url = "{ repo }/releases/download/v{ version }/s2-{ target }.tar.gz"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "3", features = ["apple-native"] }
+security-framework = "3"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 keyring = { version = "3", features = ["linux-native"] }

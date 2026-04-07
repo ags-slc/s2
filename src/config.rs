@@ -13,6 +13,10 @@ pub struct Config {
     #[serde(default)]
     pub audit_log: Option<String>,
 
+    /// Require biometric (Touch ID) authentication for secret access (macOS only).
+    #[serde(default)]
+    pub biometric: bool,
+
     #[serde(default)]
     pub profiles: HashMap<String, Profile>,
 

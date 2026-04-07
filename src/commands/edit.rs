@@ -2,13 +2,14 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::Command;
 
+use crate::config::Config;
 use crate::crypto;
 use crate::error::S2Error;
 use crate::keychain;
 use crate::permissions;
 
 /// Decrypt to a secure temp file, open in $EDITOR, re-encrypt on save.
-pub fn run(path: PathBuf) -> Result<(), S2Error> {
+pub fn run(config: &Config, path: PathBuf) -> Result<(), S2Error> {
     if !path.exists() {
         return Err(S2Error::FileNotFound(path));
     }
@@ -23,7 +24,7 @@ pub fn run(path: PathBuf) -> Result<(), S2Error> {
     }
 
     let key = keychain::file_key(&path);
-    let passphrase = keychain::get_passphrase(&key)?;
+    let passphrase = keychain::get_passphrase(&key, config.biometric)?;
     let plaintext = crypto::decrypt_with_passphrase(&encrypted, &passphrase)?;
 
     // Find editor

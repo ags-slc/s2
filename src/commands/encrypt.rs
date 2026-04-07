@@ -1,12 +1,13 @@
 use std::path::PathBuf;
 
+use crate::config::Config;
 use crate::crypto;
 use crate::error::S2Error;
 use crate::keychain;
 use crate::permissions;
 
 /// Encrypt a plaintext file with age. Stores the passphrase in the system keychain.
-pub fn run(path: PathBuf) -> Result<(), S2Error> {
+pub fn run(config: &Config, path: PathBuf) -> Result<(), S2Error> {
     if !path.exists() {
         return Err(S2Error::FileNotFound(path));
     }
@@ -23,7 +24,7 @@ pub fn run(path: PathBuf) -> Result<(), S2Error> {
     // Generate passphrase and store in keychain
     let passphrase = crypto::generate_passphrase();
     let key = keychain::file_key(&path);
-    keychain::store_passphrase(&key, &passphrase)?;
+    keychain::store_passphrase(&key, &passphrase, config.biometric)?;
 
     // Encrypt
     let encrypted = crypto::encrypt_with_passphrase(&plaintext, &passphrase)?;

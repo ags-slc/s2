@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Touch ID / biometric authentication for secret access (macOS only)
+  - Set `biometric = true` in config to require Touch ID for all decrypt/exec operations
+  - Existing keychain items auto-migrate to biometric protection on next access
+  - Falls back to device passcode when no biometric hardware is available
+  - Linux and CI/headless environments are unaffected (config option ignored)
+
 ## [1.0.1] - 2026-04-06
 
 ### Fixed

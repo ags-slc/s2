@@ -201,12 +201,26 @@ chmod +x .git/hooks/pre-commit
 
 **Medium confidence** (entropy analysis): Strings with high Shannon entropy (>4.5) and length >20 characters. Catches secrets without a known pattern format. Placeholder values (`changeme`, `REPLACE_ME`, `your-*-here`, etc.) are automatically excluded to reduce false positives.
 
+## Biometric Authentication (Touch ID)
+
+Require Touch ID on macOS before any secret is decrypted or injected:
+
+```toml
+# ~/.config/s2/config.toml
+biometric = true
+```
+
+When enabled, `s2 exec`, `s2 edit`, `s2 decrypt`, and `s2 set` trigger a Touch ID prompt. Commands that don't access secrets (`s2 scan`, `s2 hook`, `s2 list` on plaintext files) don't prompt.
+
+Existing keychain items auto-migrate to biometric protection on next access. On Linux or headless systems, the option is ignored.
+
 ## Configuration
 
 Create `~/.config/s2/config.toml`:
 
 ```toml
 default_files = ["~/.secrets"]
+biometric = true   # optional: require Touch ID on macOS
 audit_log = "~/.config/s2/audit.log"
 
 [profiles.aws]
@@ -364,6 +378,7 @@ Copy `hooks/opencode/s2.ts` to `~/.config/opencode/plugins/s2.ts`. The plugin in
 
 | Threat | Mitigation |
 |--------|-----------|
+| Unattended terminal access | Touch ID required before any secret access (`biometric = true`) |
 | `env`/`printenv` in parent shell | Secrets never loaded into parent — only in exec'd subprocess |
 | stdout/stderr | CLI never prints values; `SecretString` redacts Debug/Display |
 | Shell history | `set` reads from stdin, not args; `exec` args are the target command |

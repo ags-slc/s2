@@ -75,17 +75,17 @@ fn main() {
             commands::check::run(&config, registry, cache, keys, files, profile)
         }
 
-        Command::Init { path, no_encrypt } => commands::init::run(path, no_encrypt),
+        Command::Init { path, no_encrypt } => commands::init::run(&config, path, no_encrypt),
 
         Command::Set { key, file } => commands::set::run(&config, key, file),
 
         Command::Unset { key, file } => commands::unset::run(&config, key, file),
 
-        Command::Encrypt { path } => commands::encrypt::run(path),
+        Command::Encrypt { path } => commands::encrypt::run(&config, path),
 
-        Command::Decrypt { path } => commands::decrypt::run(path),
+        Command::Decrypt { path } => commands::decrypt::run(&config, path),
 
-        Command::Edit { path } => commands::edit::run(path),
+        Command::Edit { path } => commands::edit::run(&config, path),
 
         Command::Redact { files, profile } => {
             let (registry, cache) = init_providers(&config);

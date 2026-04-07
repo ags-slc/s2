@@ -306,3 +306,11 @@ Agents without programmatic hooks:
 **Decision:** `s2 set` reads values exclusively from stdin, never from CLI arguments.
 
 **Why:** CLI arguments are visible in `ps` output, shell history (`~/.bash_history`, `~/.zsh_history`), and process audit logs. Reading from stdin (`echo "val" | s2 set KEY`) avoids all three vectors. The pipe is ephemeral and not logged.
+
+### ADR-7: Biometric via Keychain Access Control
+
+**Decision:** Biometric authentication uses macOS Keychain's `SecAccessControl` with `BIOMETRY_CURRENT_SET` flag, not the LocalAuthentication framework.
+
+**Why:** When a keychain item has biometric access control, `SecItemCopyMatching` (the retrieve API) automatically triggers the OS-native Touch ID dialog. No separate biometric prompt code is needed. The `security-framework` crate provides safe Rust wrappers for `SecAccessControl` and `PasswordOptions`. Existing keychain items (stored without biometric ACL) are auto-migrated on next access: read from regular keyring, re-store with biometric flag, delete old entry.
+
+**Tradeoff:** Items stored with `BIOMETRY_CURRENT_SET` cannot fall back to password on macOS — if Touch ID fails (e.g., too many attempts), the user must wait or use their device passcode. This is the standard macOS Keychain behavior and matches user expectations for biometric-protected items.

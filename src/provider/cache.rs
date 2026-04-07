@@ -46,7 +46,7 @@ impl ProviderCache {
 
         permissions::check_permissions(&path)?;
         let encrypted = std::fs::read(&path)?;
-        let passphrase = keychain::get_passphrase(CACHE_KEYCHAIN_ID)?;
+        let passphrase = keychain::get_passphrase(CACHE_KEYCHAIN_ID, false)?;
         let plaintext = crypto::decrypt_with_passphrase(&encrypted, &passphrase)?;
         let cache: ProviderCache = toml::from_str(&plaintext)
             .map_err(|e| S2Error::Config(format!("corrupt provider cache: {}", e)))?;
@@ -64,11 +64,11 @@ impl ProviderCache {
         let plaintext = toml::to_string_pretty(self)
             .map_err(|e| S2Error::Config(format!("cache serialization: {}", e)))?;
 
-        let passphrase = match keychain::get_passphrase(CACHE_KEYCHAIN_ID) {
+        let passphrase = match keychain::get_passphrase(CACHE_KEYCHAIN_ID, false) {
             Ok(p) => p,
             Err(_) => {
                 let p = crypto::generate_passphrase();
-                keychain::store_passphrase(CACHE_KEYCHAIN_ID, &p)?;
+                keychain::store_passphrase(CACHE_KEYCHAIN_ID, &p, false)?;
                 p
             }
         };

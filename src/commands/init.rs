@@ -1,12 +1,13 @@
 use std::path::PathBuf;
 
+use crate::config::Config;
 use crate::crypto;
 use crate::error::S2Error;
 use crate::keychain;
 use crate::permissions;
 
 /// Create a new secret file with secure permissions, encrypted by default.
-pub fn run(path: Option<PathBuf>, no_encrypt: bool) -> Result<(), S2Error> {
+pub fn run(config: &Config, path: Option<PathBuf>, no_encrypt: bool) -> Result<(), S2Error> {
     let path = path.unwrap_or_else(|| PathBuf::from(".env"));
 
     if path.exists() {
@@ -30,7 +31,7 @@ pub fn run(path: Option<PathBuf>, no_encrypt: bool) -> Result<(), S2Error> {
     } else {
         let passphrase = crypto::generate_passphrase();
         let key = keychain::file_key(&path.canonicalize().unwrap_or_else(|_| path.clone()));
-        keychain::store_passphrase(&key, &passphrase)?;
+        keychain::store_passphrase(&key, &passphrase, config.biometric)?;
 
         let encrypted = crypto::encrypt_with_passphrase(header.as_bytes(), &passphrase)?;
         std::fs::write(&path, &encrypted)?;

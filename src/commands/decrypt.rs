@@ -1,12 +1,13 @@
 use std::path::PathBuf;
 
+use crate::config::Config;
 use crate::crypto;
 use crate::error::S2Error;
 use crate::keychain;
 use crate::permissions;
 
 /// Decrypt an age-encrypted file, replacing it with the plaintext.
-pub fn run(path: PathBuf) -> Result<(), S2Error> {
+pub fn run(config: &Config, path: PathBuf) -> Result<(), S2Error> {
     if !path.exists() {
         return Err(S2Error::FileNotFound(path));
     }
@@ -21,7 +22,7 @@ pub fn run(path: PathBuf) -> Result<(), S2Error> {
     }
 
     let key = keychain::file_key(&path);
-    let passphrase = keychain::get_passphrase(&key)?;
+    let passphrase = keychain::get_passphrase(&key, config.biometric)?;
     let plaintext = crypto::decrypt_with_passphrase(&encrypted, &passphrase)?;
 
     std::fs::write(&path, plaintext.as_bytes())?;
