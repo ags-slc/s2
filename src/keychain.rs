@@ -9,7 +9,11 @@ const SERVICE_NAME: &str = "s2-secrets";
 
 /// Store a passphrase, trying system keyring first, then file-based fallback.
 /// When `biometric` is true on macOS, stores with Touch ID access control.
-pub fn store_passphrase(file_key: &str, passphrase: &str, biometric: bool) -> Result<(), S2Error> {
+pub fn store_passphrase(
+    file_key: &str,
+    passphrase: &str,
+    #[allow(unused_variables)] biometric: bool,
+) -> Result<(), S2Error> {
     #[cfg(target_os = "macos")]
     if biometric {
         if let Ok(()) = store_passphrase_biometric(file_key, passphrase) {
@@ -30,7 +34,10 @@ pub fn store_passphrase(file_key: &str, passphrase: &str, biometric: bool) -> Re
 
 /// Retrieve a passphrase, trying system keyring first, then file-based fallback.
 /// When `biometric` is true on macOS, triggers Touch ID before returning.
-pub fn get_passphrase(file_key: &str, biometric: bool) -> Result<String, S2Error> {
+pub fn get_passphrase(
+    file_key: &str,
+    #[allow(unused_variables)] biometric: bool,
+) -> Result<String, S2Error> {
     #[cfg(target_os = "macos")]
     if biometric {
         // Try biometric-protected item first
