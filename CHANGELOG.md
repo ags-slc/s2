@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-04-06
+
+### Fixed
+- `s2 scan /dev/stdin` now works for piped input on macOS and Linux (#3)
+
 ## [1.0.0] - 2026-04-06
 
 ### Added
@@ -79,7 +84,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Provider cache with TTL and offline fallback
 - Binary distribution via GitHub Releases, crates.io, and curl installer
 
-[Unreleased]: https://github.com/ags-slc/s2/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/ags-slc/s2/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/ags-slc/s2/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/ags-slc/s2/compare/v0.5.1...v1.0.0
 [0.5.1]: https://github.com/ags-slc/s2/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/ags-slc/s2/compare/v0.4.0...v0.5.0
