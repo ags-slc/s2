@@ -264,9 +264,10 @@ Before the rewrite logic, the hook checks if a command would expose secrets. Eva
 
 **Detection layers:**
 1. **Env-dump commands**: blocks bare `env`/`printenv`. Allows `env VAR=val cmd` (wrapper use) and `printenv HOME` (single-var lookup).
-2. **File-reading commands**: blocks `cat`, `head`, `grep`, `base64`, `cp`, `curl`, etc. when a token matches a configured secret file path.
-3. **Input redirects**: blocks `< ~/.secrets`.
-4. **@-syntax references**: blocks `curl -d @~/.secrets`.
+2. **File-reading commands**: blocks file readers (`cat`, `head`, `tail`, `less`, `bat`, `base64`, `xxd`, `strings`, `tee`, `vim`, `nano`, etc.), file operations (`cp`, `mv`, `scp`, `rsync`, `curl`, `wget`), and script interpreters (`python`, `ruby`, `perl`, `node`, `source`) when a token matches a configured secret file path.
+3. **Search commands**: blocks `grep`, `egrep`, `fgrep`, `rg`, `ag`, `ack`, `sed`, `awk` when a token matches a configured secret file path.
+4. **Input redirects**: blocks `< ~/.secrets`.
+5. **@-syntax references**: blocks `curl -d @~/.secrets`.
 
 **Path matching**: exact string match after tilde expansion. No `fs::canonicalize` (would require file I/O, violating the <5ms constraint). Symlink-based evasion is outside the threat model (AI agent social engineering, not malicious binaries).
 

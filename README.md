@@ -291,8 +291,11 @@ profile = "aws"       # or use: files = ["~/.secrets"]
 The hook includes a guard that blocks commands which would expose secrets to the agent. Enabled by default when hook files are configured.
 
 **What it blocks:**
-- **Env dumps**: bare `env`, `printenv` (allows `env VAR=val cmd` and `printenv HOME`)
-- **Secret file reads**: `cat`, `head`, `grep`, `base64`, `cp`, `curl`, etc. targeting a configured secret file
+- **Env dumps**: bare `env`, `printenv` (allows `env VAR=val cmd`, `env -i cmd`, and `printenv HOME`)
+- **File readers**: `cat`, `head`, `tail`, `less`, `more`, `bat`, `base64`, `xxd`, `strings`, `tee`, `vim`, `nano`, etc. targeting a configured secret file
+- **File operations**: `cp`, `mv`, `scp`, `rsync`, `curl`, `wget` targeting a configured secret file
+- **Search tools**: `grep`, `rg`, `ag`, `ack`, `sed`, `awk` targeting a configured secret file
+- **Script interpreters**: `python`, `ruby`, `perl`, `node`, `source`, `.` targeting a configured secret file
 - **Redirects & @-refs**: `< ~/.secrets`, `curl -d @~/.secrets`
 
 **Configuration:**

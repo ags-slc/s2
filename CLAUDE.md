@@ -31,6 +31,7 @@ cargo fmt --check                  # format check
 - **Keychain with file fallback** — passphrases stored in macOS Keychain or Linux Secret Service (D-Bus). On headless systems without a keyring, falls back to `~/.config/s2/keys/` with 0600 permissions.
 - **Feature flags**: `provider-ssm` (default), `provider-vault` (opt-in). SSM deps are heavy; Vault needs `reqwest`.
 - **`s2 scan` must be instant** — designed as a pre-commit hook, runs on every commit. No network calls, no heavy deps. Pure compiled regexes + O(n) Shannon entropy. No external databases, API calls, or signature downloads.
+- **Hook guard blocks secret exposure** — when AI agent hooks are configured, the guard blocks commands that would read secret files (`cat`, `grep`, etc.) or dump env vars (bare `env`/`printenv`). Enabled by default, configurable via `[hook.guard]`.
 
 ## Platform Support
 
