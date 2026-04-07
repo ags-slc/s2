@@ -258,7 +258,22 @@ Agents without programmatic hooks:
 - **Codex**: prompt-level awareness file (`hooks/codex/s2-awareness.md`)
 - **OpenCode**: TypeScript plugin (`hooks/opencode/s2.ts`) that calls `s2 hook --format cursor`
 
-### Guard Conditions (passthrough)
+### Guard (Secret Exposure Protection)
+
+Before the rewrite logic, the hook checks if a command would expose secrets. Evaluation order: **Guard (block) → Passthrough → Rewrite**.
+
+**Detection layers:**
+1. **Env-dump commands**: blocks bare `env`/`printenv`. Allows `env VAR=val cmd` (wrapper use) and `printenv HOME` (single-var lookup).
+2. **File-reading commands**: blocks file readers (`cat`, `head`, `tail`, `less`, `bat`, `base64`, `xxd`, `strings`, `tee`, `vim`, `nano`, etc.), file operations (`cp`, `mv`, `scp`, `rsync`, `curl`, `wget`), and script interpreters (`python`, `ruby`, `perl`, `node`, `source`) when a token matches a configured secret file path.
+3. **Search commands**: blocks `grep`, `egrep`, `fgrep`, `rg`, `ag`, `ack`, `sed`, `awk` when a token matches a configured secret file path.
+4. **Input redirects**: blocks `< ~/.secrets`.
+5. **@-syntax references**: blocks `curl -d @~/.secrets`.
+
+**Path matching**: exact string match after tilde expansion. No `fs::canonicalize` (would require file I/O, violating the <5ms constraint). Symlink-based evasion is outside the threat model (AI agent social engineering, not malicious binaries).
+
+**Output**: Claude/Copilot receive `{"hookSpecificOutput":{"decision":"block","reason":"..."}}`. Cursor receives a command rewrite to `echo 'reason' >&2; exit 1`.
+
+### Passthrough Conditions
 
 - Tool is not `Bash`
 - Command starts with `s2` or contains `s2 exec` (prevents infinite loops)
@@ -306,6 +321,12 @@ Agents without programmatic hooks:
 **Decision:** `s2 set` reads values exclusively from stdin, never from CLI arguments.
 
 **Why:** CLI arguments are visible in `ps` output, shell history (`~/.bash_history`, `~/.zsh_history`), and process audit logs. Reading from stdin (`echo "val" | s2 set KEY`) avoids all three vectors. The pipe is ephemeral and not logged.
+
+### ADR-6: Hook Guard Uses Exact Path Matching
+
+**Decision:** The guard compares command tokens against secret file paths using exact string match after tilde expansion, not filesystem canonicalization.
+
+**Why:** The hook must run in <5ms with no file I/O. `fs::canonicalize` requires stat syscalls and resolves symlinks — too expensive and unnecessary. The threat model is AI agents being social-engineered into running obvious commands (`cat ~/.secrets`), not adversaries crafting symlink chains. Exact matching catches the real attacks while maintaining the performance constraint. Defense in depth: the guard is one layer alongside encryption at rest, 0600 permissions, and `SecretString` zeroization.
 
 ### ADR-7: Biometric via Keychain Access Control
 

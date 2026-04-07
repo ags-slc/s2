@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Existing keychain items auto-migrate to biometric protection on next access
   - Falls back to device passcode when no biometric hardware is available
   - Linux and CI/headless environments are unaffected (config option ignored)
+- Hook guard: blocks AI agents from reading secret files or dumping environment variables
+  - Detects `cat`, `head`, `grep`, `base64`, `cp`, `curl`, etc. targeting configured secret files
+  - Blocks bare `env` and `printenv` (allows `env VAR=val cmd` and `printenv HOME`)
+  - Detects input redirects (`< file`) and @-syntax (`curl -d @file`)
+  - Configurable via `[hook.guard]` in config (enabled by default)
 
 ## [1.0.1] - 2026-04-06
 
