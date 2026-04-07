@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Hook guard: blocks AI agents from reading secret files or dumping environment variables
+  - Detects `cat`, `head`, `grep`, `base64`, `cp`, `curl`, etc. targeting configured secret files
+  - Blocks bare `env` and `printenv` (allows `env VAR=val cmd` and `printenv HOME`)
+  - Detects input redirects (`< file`) and @-syntax (`curl -d @file`)
+  - Configurable via `[hook.guard]` in config (enabled by default)
+
 ## [1.0.1] - 2026-04-06
 
 ### Fixed
