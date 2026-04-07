@@ -379,7 +379,7 @@ fn collect_staged_files() -> Result<Vec<PathBuf>, S2Error> {
 fn collect_files(paths: &[PathBuf]) -> Vec<PathBuf> {
     let mut files = Vec::new();
     for path in paths {
-        if path.is_file() {
+        if path.is_file() || (path.exists() && !path.is_dir()) {
             files.push(path.clone());
         } else if path.is_dir() {
             let walker = ignore::WalkBuilder::new(path).hidden(true).build();
