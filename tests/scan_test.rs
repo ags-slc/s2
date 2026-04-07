@@ -2,6 +2,17 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 
 #[test]
+fn test_scan_dev_stdin() {
+    Command::cargo_bin("s2")
+        .unwrap()
+        .args(["scan", "/dev/stdin"])
+        .write_stdin("AWS_KEY=AKIAIOSFODNN7EXAMPLE\n")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("aws-access-key"));
+}
+
+#[test]
 fn test_scan_shows_hash_in_output() {
     let dir = tempfile::tempdir().unwrap();
     let env_file = dir.path().join(".env");
