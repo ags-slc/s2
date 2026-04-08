@@ -7,12 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-- SSM path-prefix import: `*=ssm:///prefix/` auto-discovers and injects all parameters under a path
-  - Recursive by default, use `#shallow` fragment for immediate children only
-  - Parameter names converted to env vars (strip prefix, replace `/`/`-`/`.` with `_`, uppercase)
-  - Individual results cached per-parameter for fine-grained TTL
-  - Requires `ssm:GetParametersByPath` IAM permission
+## [1.1.1] - 2026-04-08
+
+### Fixed
+- Armored age files could not be decrypted — `Decryptor::new()` requires `ArmoredReader` wrapper in age 0.11
+- `s2 init` stored keychain passphrase with relative path key, causing lookup failures on subsequent commands that use the canonical (absolute) path
 
 ## [1.1.0] - 2026-04-07
 
@@ -105,7 +104,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Provider cache with TTL and offline fallback
 - Binary distribution via GitHub Releases, crates.io, and curl installer
 
-[Unreleased]: https://github.com/ags-slc/s2/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/ags-slc/s2/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/ags-slc/s2/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/ags-slc/s2/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/ags-slc/s2/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/ags-slc/s2/compare/v0.5.1...v1.0.0

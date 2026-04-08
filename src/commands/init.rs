@@ -30,12 +30,13 @@ pub fn run(config: &Config, path: Option<PathBuf>, no_encrypt: bool) -> Result<(
         eprintln!("Created {} (mode 0600, plaintext)", path.display());
     } else {
         let passphrase = crypto::generate_passphrase();
-        let key = keychain::file_key(&path.canonicalize().unwrap_or_else(|_| path.clone()));
-        keychain::store_passphrase(&key, &passphrase, config.biometric)?;
-
         let encrypted = crypto::encrypt_with_passphrase(header.as_bytes(), &passphrase)?;
         std::fs::write(&path, &encrypted)?;
         permissions::set_secure_permissions(&path)?;
+
+        // Store passphrase AFTER writing the file so canonicalize() works
+        let key = keychain::file_key(&path);
+        keychain::store_passphrase(&key, &passphrase, config.biometric)?;
         eprintln!(
             "Created {} (mode 0600, encrypted, passphrase stored in keychain)",
             path.display()

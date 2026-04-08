@@ -30,7 +30,9 @@ pub fn decrypt_file_content(
 
 /// Decrypt age-encrypted bytes with a given passphrase.
 pub fn decrypt_with_passphrase(encrypted: &[u8], passphrase: &str) -> Result<String, S2Error> {
-    let decryptor = age::Decryptor::new(encrypted)
+    // Wrap in ArmoredReader to handle both armored and binary age formats
+    let reader = age::armor::ArmoredReader::new(encrypted);
+    let decryptor = age::Decryptor::new(reader)
         .map_err(|e| S2Error::Encryption(format!("invalid age file: {}", e)))?;
 
     let identity = age::scrypt::Identity::new(SecretString::from(passphrase.to_string()));
