@@ -59,6 +59,10 @@ pub struct Profile {
 
     #[serde(default)]
     pub keys: Vec<String>,
+
+    /// Per-profile provider overrides (replaces global [providers] for this profile).
+    #[serde(default)]
+    pub providers: Option<HashMap<String, ProviderConfig>>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -226,6 +230,22 @@ impl Config {
         } else {
             Ok(Config::default())
         }
+    }
+
+    /// Resolve effective provider configs for a command.
+    /// Priority: profile providers > global providers.
+    pub fn effective_providers(
+        &self,
+        profile_name: &Option<String>,
+    ) -> &HashMap<String, ProviderConfig> {
+        if let Some(name) = profile_name {
+            if let Some(profile) = self.profiles.get(name) {
+                if let Some(ref providers) = profile.providers {
+                    return providers;
+                }
+            }
+        }
+        &self.providers
     }
 
     /// Resolve files for a command, given CLI flags and optional profile.

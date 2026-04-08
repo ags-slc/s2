@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Per-profile provider overrides: `[profiles.X.providers.ssm]` replaces global provider config for that profile
+
 ## [1.1.2] - 2026-04-08
 
 ### Fixed

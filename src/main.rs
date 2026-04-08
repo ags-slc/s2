@@ -17,8 +17,8 @@ use config::Config;
 use provider::cache::ProviderCache;
 use provider::ProviderRegistry;
 
-fn init_providers(config: &Config) -> (ProviderRegistry, ProviderCache) {
-    let registry = match ProviderRegistry::from_config(&config.providers) {
+fn init_providers(config: &Config, profile: &Option<String>) -> (ProviderRegistry, ProviderCache) {
+    let registry = match ProviderRegistry::from_config(config.effective_providers(profile)) {
         Ok(r) => r,
         Err(e) => {
             eprintln!("s2: provider init error: {}", e);
@@ -55,14 +55,14 @@ fn main() {
             clean_env,
             cmd,
         } => {
-            let (registry, cache) = init_providers(&config);
+            let (registry, cache) = init_providers(&config, &profile);
             commands::exec::run(
                 &config, registry, cache, files, keys, profile, clean_env, cmd,
             )
         }
 
         Command::List { files, profile } => {
-            let (registry, cache) = init_providers(&config);
+            let (registry, cache) = init_providers(&config, &profile);
             commands::list::run(&config, registry, cache, files, profile)
         }
 
@@ -71,7 +71,7 @@ fn main() {
             files,
             profile,
         } => {
-            let (registry, cache) = init_providers(&config);
+            let (registry, cache) = init_providers(&config, &profile);
             commands::check::run(&config, registry, cache, keys, files, profile)
         }
 
@@ -88,7 +88,7 @@ fn main() {
         Command::Edit { path } => commands::edit::run(&config, path),
 
         Command::Redact { files, profile } => {
-            let (registry, cache) = init_providers(&config);
+            let (registry, cache) = init_providers(&config, &profile);
             commands::redact::run(&config, registry, cache, files, profile)
         }
 

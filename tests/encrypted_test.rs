@@ -63,9 +63,7 @@ fn test_init_encrypted_set_then_check() {
         .success();
 
     // check should find the key
-    s2().args(["check", "API_KEY", "-f", p])
-        .assert()
-        .success();
+    s2().args(["check", "API_KEY", "-f", p]).assert().success();
 
     // check should fail for missing key
     s2().args(["check", "MISSING_KEY", "-f", p])
@@ -86,17 +84,11 @@ fn test_init_encrypted_set_then_unset() {
         .assert()
         .success();
 
-    s2().args(["check", "TEMP_KEY", "-f", p])
-        .assert()
-        .success();
+    s2().args(["check", "TEMP_KEY", "-f", p]).assert().success();
 
-    s2().args(["unset", "TEMP_KEY", "-f", p])
-        .assert()
-        .success();
+    s2().args(["unset", "TEMP_KEY", "-f", p]).assert().success();
 
-    s2().args(["check", "TEMP_KEY", "-f", p])
-        .assert()
-        .failure();
+    s2().args(["check", "TEMP_KEY", "-f", p]).assert().failure();
 }
 
 // --- Encrypt / Decrypt commands ---

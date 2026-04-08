@@ -229,6 +229,11 @@ keys = ["AWS_SECRET_ACCESS_KEY"]
 
 [profiles.deploy]
 files = ["~/.secrets", ".env.local"]
+
+# Per-profile provider overrides (replaces global [providers] for this profile)
+[profiles.prod.providers.ssm]
+profile = "prod-account"
+region = "us-east-1"
 ```
 
 Then use profiles:
