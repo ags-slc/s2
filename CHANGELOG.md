@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-04-08
+
+### Fixed
+- Re-release of v1.1.1 fixes (early v1.1.1 binaries were built before the ArmoredReader fix landed)
+
 ## [1.1.1] - 2026-04-08
 
 ### Fixed
@@ -104,7 +109,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Provider cache with TTL and offline fallback
 - Binary distribution via GitHub Releases, crates.io, and curl installer
 
-[Unreleased]: https://github.com/ags-slc/s2/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/ags-slc/s2/compare/v1.1.2...HEAD
+[1.1.2]: https://github.com/ags-slc/s2/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/ags-slc/s2/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/ags-slc/s2/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/ags-slc/s2/compare/v1.0.0...v1.0.1
