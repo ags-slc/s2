@@ -417,6 +417,7 @@ fn collect_files(paths: &[PathBuf], no_ignore: bool, extra_skip_dirs: &[String])
             builder.hidden(true);
             if no_ignore {
                 builder
+                    .hidden(false)
                     .git_ignore(false)
                     .git_exclude(false)
                     .git_global(false);
@@ -1395,5 +1396,39 @@ mod tests {
         short_allowlist.insert("a1b2c3d4".to_string());
         assert!(is_allowed("a1b2c3d4e5f6a7b8", &short_allowlist));
         assert!(!is_allowed("ffffffffffffffff", &short_allowlist));
+    }
+
+    #[test]
+    fn test_collect_files_no_ignore_includes_hidden_dotfiles() {
+        let dir = tempfile::tempdir().unwrap();
+        let env_path = dir.path().join(".env");
+        std::fs::write(&env_path, "SECRET=value\n").unwrap();
+        std::fs::write(dir.path().join("plain.txt"), "hello\n").unwrap();
+
+        let paths = vec![dir.path().to_path_buf()];
+
+        let without = collect_files(&paths, false, &[]);
+        assert!(
+            without.iter().all(|p| p.file_name().unwrap() != ".env"),
+            "default scan must skip hidden dotfiles, got: {:?}",
+            without
+        );
+
+        let with = collect_files(&paths, true, &[]);
+        assert!(
+            with.iter().any(|p| p.file_name().unwrap() == ".env"),
+            "--no-ignore must include hidden dotfiles, got: {:?}",
+            with
+        );
+    }
+
+    #[test]
+    fn test_collect_files_explicit_file_path_always_included() {
+        let dir = tempfile::tempdir().unwrap();
+        let env_path = dir.path().join(".env");
+        std::fs::write(&env_path, "SECRET=value\n").unwrap();
+
+        let files = collect_files(&[env_path.clone()], false, &[]);
+        assert_eq!(files, vec![env_path]);
     }
 }

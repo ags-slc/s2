@@ -121,8 +121,8 @@ pub enum Command {
         #[arg(long)]
         staged: bool,
 
-        /// Include files ignored by .gitignore (vendored directories like
-        /// node_modules/ and target/ are still skipped)
+        /// Include files ignored by .gitignore and hidden dotfiles like .env
+        /// (vendored directories like node_modules/ and target/ are still skipped)
         #[arg(long)]
         no_ignore: bool,
 
