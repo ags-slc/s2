@@ -105,9 +105,21 @@ s2 scan --staged
 
 # JSON output for CI
 s2 scan . --json
+
+# Include .gitignored files (vendored dirs like node_modules/ are still skipped)
+s2 scan --no-ignore .
 ```
 
 Exit code 1 if secrets are found (blocks commits when used as a hook).
+
+When `--no-ignore` is used, `.gitignore` rules are disabled but vendored/build directories
+(`node_modules`, `target`, `.venv`, `build`, `dist`, etc.) are always skipped. To skip
+additional directories, add them in `~/.config/s2/config.toml`:
+
+```toml
+[scan]
+skip_dirs = ["custom_vendor", "third_party"]
+```
 
 ### List Rules
 

@@ -121,6 +121,11 @@ pub enum Command {
         #[arg(long)]
         staged: bool,
 
+        /// Include files ignored by .gitignore (vendored directories like
+        /// node_modules/ and target/ are still skipped)
+        #[arg(long)]
+        no_ignore: bool,
+
         /// Output as JSON (one finding per line)
         #[arg(long)]
         json: bool,

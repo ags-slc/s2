@@ -208,6 +208,9 @@ impl HookConfig {
 pub struct ScanConfig {
     #[serde(default)]
     pub rules: Vec<CustomScanRule>,
+    /// Additional directory names to skip during scanning (merged with built-in defaults).
+    #[serde(default)]
+    pub skip_dirs: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
