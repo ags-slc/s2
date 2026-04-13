@@ -95,13 +95,14 @@ fn main() {
         Command::Scan {
             paths,
             staged,
+            no_ignore,
             json,
             entropy,
             learn,
             allow,
             list_rules,
         } => commands::scan::run(
-            &config, paths, staged, json, entropy, learn, allow, list_rules,
+            &config, paths, staged, no_ignore, json, entropy, learn, allow, list_rules,
         ),
 
         Command::Completions { shell } => {

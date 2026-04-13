@@ -376,14 +376,61 @@ fn collect_staged_files() -> Result<Vec<PathBuf>, S2Error> {
         .collect())
 }
 
-fn collect_files(paths: &[PathBuf]) -> Vec<PathBuf> {
+/// Directories that are always skipped during scanning, even with --no-ignore.
+/// These contain vendored third-party code or build artifacts — scanning them
+/// produces noise with no security benefit.
+const BUILTIN_SKIP_DIRS: &[&str] = &[
+    "node_modules",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".tox",
+    "target",
+    "dist",
+    "build",
+    "out",
+    "_build",
+    ".gradle",
+    ".m2",
+    ".cargo",
+    ".bundle",
+    "Pods",
+    "bower_components",
+    ".nuget",
+    ".git",
+];
+
+fn collect_files(paths: &[PathBuf], no_ignore: bool, extra_skip_dirs: &[String]) -> Vec<PathBuf> {
+    let skip_dirs: HashSet<String> = BUILTIN_SKIP_DIRS
+        .iter()
+        .map(|s| (*s).to_owned())
+        .chain(extra_skip_dirs.iter().cloned())
+        .collect();
+    let skip_dirs = std::sync::Arc::new(skip_dirs);
+
     let mut files = Vec::new();
     for path in paths {
         if path.is_file() || (path.exists() && !path.is_dir()) {
             files.push(path.clone());
         } else if path.is_dir() {
-            let walker = ignore::WalkBuilder::new(path).hidden(true).build();
-            for entry in walker.flatten() {
+            let mut builder = ignore::WalkBuilder::new(path);
+            builder.hidden(true);
+            if no_ignore {
+                builder
+                    .git_ignore(false)
+                    .git_exclude(false)
+                    .git_global(false);
+            }
+            let skip = skip_dirs.clone();
+            builder.filter_entry(move |entry| {
+                if entry.file_type().is_some_and(|ft| ft.is_dir()) {
+                    if let Some(name) = entry.path().file_name().and_then(|n| n.to_str()) {
+                        return !skip.contains(name);
+                    }
+                }
+                true
+            });
+            for entry in builder.build().flatten() {
                 if entry.file_type().is_some_and(|ft| ft.is_file()) {
                     files.push(entry.into_path());
                 }
@@ -811,6 +858,7 @@ pub fn run(
     config: &Config,
     paths: Vec<PathBuf>,
     staged: bool,
+    no_ignore: bool,
     json: bool,
     entropy_threshold: f64,
     learn: Option<PathBuf>,
@@ -834,9 +882,9 @@ pub fn run(
     let files = if staged {
         collect_staged_files()?
     } else if paths.is_empty() {
-        collect_files(&[PathBuf::from(".")])
+        collect_files(&[PathBuf::from(".")], no_ignore, &config.scan.skip_dirs)
     } else {
-        collect_files(&paths)
+        collect_files(&paths, no_ignore, &config.scan.skip_dirs)
     };
 
     let mut all_findings: Vec<Finding> = Vec::new();
