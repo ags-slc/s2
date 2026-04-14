@@ -357,7 +357,7 @@ fn add_to_allowlist(hashes: &[String]) -> Result<(), S2Error> {
     let added: Vec<&str> = hashes
         .iter()
         .filter(|h| {
-            if existing.contains(h.as_str()) {
+            if is_allowed(h, &existing) {
                 eprintln!("Already in .s2allowlist: {}", h);
                 false
             } else {
