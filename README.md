@@ -175,6 +175,18 @@ s2 scan --staged
 
 Hashes are stored in `.s2allowlist` in the current directory. Commit it to share with your team, or gitignore it for personal use. Prefix matching is supported (minimum 8 characters).
 
+To add context comments alongside each hash (file, line, rule, and description), use `--allow-with-context`:
+
+```bash
+s2 scan --allow-with-context 97eb0519eeb61ed6
+
+# Produces in .s2allowlist:
+# .env:5 — DB_PASSWORD — high-entropy (High-entropy string)
+97eb0519eeb61ed6
+```
+
+This runs a scan first to look up the finding details, making allowlists easier to audit.
+
 ### Pre-commit Hook
 
 **Global (all repos):**

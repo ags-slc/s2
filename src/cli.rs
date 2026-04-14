@@ -142,6 +142,11 @@ pub enum Command {
         #[arg(long, value_name = "HASH")]
         allow: Vec<String>,
 
+        /// Add finding hashes to .s2allowlist with source context comments
+        /// (runs a scan first to look up file, line, rule, and description)
+        #[arg(long, value_name = "HASH", conflicts_with_all = ["allow", "learn", "list_rules"])]
+        allow_with_context: Vec<String>,
+
         /// List all built-in and custom scan rules, then exit
         #[arg(long)]
         list_rules: bool,
