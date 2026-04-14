@@ -358,7 +358,10 @@ fn add_to_allowlist(hashes: &[String]) -> Result<(), S2Error> {
 }
 
 fn add_to_allowlist_with_context(hashes: &[String], findings: &[Finding]) -> Result<(), S2Error> {
-    for h in hashes {
+    // Normalize to lowercase for consistent matching
+    let normalized: Vec<String> = hashes.iter().map(|h| h.to_ascii_lowercase()).collect();
+
+    for h in &normalized {
         if h.len() < 8 {
             eprintln!("s2: hash too short (minimum 8 characters): {}", h);
             process::exit(1);
@@ -372,15 +375,22 @@ fn add_to_allowlist_with_context(hashes: &[String], findings: &[Finding]) -> Res
     let path = Path::new(".s2allowlist");
     let existing = load_allowlist();
 
-    let added: Vec<&str> = hashes
+    // Dedup: skip if already in allowlist (prefix-aware) or duplicate within input
+    let mut seen: Vec<String> = Vec::new();
+    let added: Vec<&str> = normalized
         .iter()
         .filter(|h| {
-            if existing.contains(h.as_str()) {
+            if is_allowed(h, &existing) {
                 eprintln!("Already in .s2allowlist: {}", h);
-                false
-            } else {
-                true
+                return false;
             }
+            let seen_set: HashSet<String> = seen.iter().cloned().collect();
+            if is_allowed(h, &seen_set) {
+                eprintln!("Duplicate in input: {}", h);
+                return false;
+            }
+            seen.push(h.to_string());
+            true
         })
         .map(|h| h.as_str())
         .collect();
@@ -389,17 +399,39 @@ fn add_to_allowlist_with_context(hashes: &[String], findings: &[Finding]) -> Res
         return Ok(());
     }
 
+    // Ensure file ends with newline before appending
+    let needs_leading_newline = path.exists()
+        && std::fs::read(path)
+            .map(|bytes| !bytes.is_empty() && !bytes.ends_with(b"\n"))
+            .unwrap_or(false);
+
     let mut file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(path)
         .map_err(|e| S2Error::Config(format!("failed to open .s2allowlist: {}", e)))?;
 
+    if needs_leading_newline {
+        writeln!(file)
+            .map_err(|e| S2Error::Config(format!("failed to write .s2allowlist: {}", e)))?;
+    }
+
     for h in &added {
-        if let Some(f) = findings
+        // Find matching findings — warn if prefix is ambiguous
+        let matches: Vec<&Finding> = findings
             .iter()
-            .find(|f| is_allowed(&f.hash, &HashSet::from([h.to_string()])))
-        {
+            .filter(|f| f.hash.starts_with(h) || h.starts_with(f.hash.as_str()))
+            .collect();
+
+        if matches.len() > 1 {
+            eprintln!(
+                "Warning: hash prefix {} matches {} findings — using first match",
+                h,
+                matches.len()
+            );
+        }
+
+        if let Some(f) = matches.first() {
             let ctx = match &f.key {
                 Some(k) => format!(
                     "# {}:{} — {} — {} ({})",
@@ -1606,6 +1638,55 @@ mod tests {
         let content = std::fs::read_to_string(&allowlist_path).unwrap();
         // Should still be just the original line — no duplicate added
         assert_eq!(content, "d4e5f6a7b8c9d0e1\n");
+    }
+
+    #[test]
+    fn test_allow_with_context_normalizes_uppercase_hash() {
+        let _lock = CWD_LOCK.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let allowlist_path = dir.path().join(".s2allowlist");
+        let _guard = SetCwd::new(dir.path());
+
+        let findings = vec![Finding {
+            file: "app.rs".to_string(),
+            line: 10,
+            key: None,
+            rule: "test-rule".to_string(),
+            description: "Test".to_string(),
+            matched: "test".to_string(),
+            confidence: "high".to_string(),
+            hash: "aabb1122ccdd3344".to_string(),
+            allowed: false,
+        }];
+
+        // Pass uppercase — should normalize and still match finding
+        add_to_allowlist_with_context(&["AABB1122CCDD3344".to_string()], &findings).unwrap();
+
+        let content = std::fs::read_to_string(&allowlist_path).unwrap();
+        let lines: Vec<&str> = content.lines().collect();
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].starts_with("# app.rs:10"));
+        assert_eq!(lines[1], "aabb1122ccdd3344");
+    }
+
+    #[test]
+    fn test_allow_with_context_handles_missing_trailing_newline() {
+        let _lock = CWD_LOCK.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let allowlist_path = dir.path().join(".s2allowlist");
+        // Write without trailing newline
+        std::fs::write(&allowlist_path, "aaaa1111bbbb2222").unwrap();
+        let _guard = SetCwd::new(dir.path());
+
+        let findings: Vec<Finding> = vec![];
+
+        add_to_allowlist_with_context(&["cccc3333dddd4444".to_string()], &findings).unwrap();
+
+        let content = std::fs::read_to_string(&allowlist_path).unwrap();
+        let lines: Vec<&str> = content.lines().collect();
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0], "aaaa1111bbbb2222");
+        assert_eq!(lines[1], "cccc3333dddd4444");
     }
 
     /// RAII guard to change cwd for a test and restore it after
