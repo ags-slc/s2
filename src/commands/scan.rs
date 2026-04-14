@@ -310,19 +310,48 @@ fn is_allowed(hash: &str, allowlist: &HashSet<String>) -> bool {
         .any(|entry| entry.starts_with(hash) || hash.starts_with(entry))
 }
 
-fn add_to_allowlist(hashes: &[String]) -> Result<(), S2Error> {
+fn validate_hashes(hashes: &[String]) -> Result<(), S2Error> {
     for h in hashes {
         if h.len() < 8 {
-            eprintln!("s2: hash too short (minimum 8 characters): {}", h);
-            process::exit(1);
+            return Err(S2Error::Config(format!(
+                "hash too short (minimum 8 characters): {}",
+                h
+            )));
         }
         if !h.chars().all(|c| c.is_ascii_hexdigit()) {
-            eprintln!("s2: invalid hash (must be hex): {}", h);
-            process::exit(1);
+            return Err(S2Error::Config(format!(
+                "invalid hash (must be hex): {}",
+                h
+            )));
         }
     }
+    Ok(())
+}
 
+fn open_allowlist_append() -> Result<std::fs::File, S2Error> {
     let path = Path::new(".s2allowlist");
+    let needs_leading_newline = path.exists()
+        && std::fs::read(path)
+            .map(|bytes| !bytes.is_empty() && !bytes.ends_with(b"\n"))
+            .unwrap_or(false);
+
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|e| S2Error::Config(format!("failed to open .s2allowlist: {}", e)))?;
+
+    if needs_leading_newline {
+        writeln!(file)
+            .map_err(|e| S2Error::Config(format!("failed to write .s2allowlist: {}", e)))?;
+    }
+
+    Ok(file)
+}
+
+fn add_to_allowlist(hashes: &[String]) -> Result<(), S2Error> {
+    validate_hashes(hashes)?;
+
     let existing = load_allowlist();
 
     let added: Vec<&str> = hashes
@@ -342,11 +371,7 @@ fn add_to_allowlist(hashes: &[String]) -> Result<(), S2Error> {
         return Ok(());
     }
 
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .map_err(|e| S2Error::Config(format!("failed to open .s2allowlist: {}", e)))?;
+    let mut file = open_allowlist_append()?;
 
     for h in &added {
         writeln!(file, "{}", h)
@@ -358,25 +383,12 @@ fn add_to_allowlist(hashes: &[String]) -> Result<(), S2Error> {
 }
 
 fn add_to_allowlist_with_context(hashes: &[String], findings: &[Finding]) -> Result<(), S2Error> {
-    // Normalize to lowercase for consistent matching
     let normalized: Vec<String> = hashes.iter().map(|h| h.to_ascii_lowercase()).collect();
+    validate_hashes(&normalized)?;
 
-    for h in &normalized {
-        if h.len() < 8 {
-            eprintln!("s2: hash too short (minimum 8 characters): {}", h);
-            process::exit(1);
-        }
-        if !h.chars().all(|c| c.is_ascii_hexdigit()) {
-            eprintln!("s2: invalid hash (must be hex): {}", h);
-            process::exit(1);
-        }
-    }
-
-    let path = Path::new(".s2allowlist");
     let existing = load_allowlist();
 
-    // Dedup: skip if already in allowlist (prefix-aware) or duplicate within input
-    let mut seen: Vec<String> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
     let added: Vec<&str> = normalized
         .iter()
         .filter(|h| {
@@ -384,12 +396,11 @@ fn add_to_allowlist_with_context(hashes: &[String], findings: &[Finding]) -> Res
                 eprintln!("Already in .s2allowlist: {}", h);
                 return false;
             }
-            let seen_set: HashSet<String> = seen.iter().cloned().collect();
-            if is_allowed(h, &seen_set) {
+            if is_allowed(h, &seen) {
                 eprintln!("Duplicate in input: {}", h);
                 return false;
             }
-            seen.push(h.to_string());
+            seen.insert(h.to_string());
             true
         })
         .map(|h| h.as_str())
@@ -399,25 +410,9 @@ fn add_to_allowlist_with_context(hashes: &[String], findings: &[Finding]) -> Res
         return Ok(());
     }
 
-    // Ensure file ends with newline before appending
-    let needs_leading_newline = path.exists()
-        && std::fs::read(path)
-            .map(|bytes| !bytes.is_empty() && !bytes.ends_with(b"\n"))
-            .unwrap_or(false);
-
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .map_err(|e| S2Error::Config(format!("failed to open .s2allowlist: {}", e)))?;
-
-    if needs_leading_newline {
-        writeln!(file)
-            .map_err(|e| S2Error::Config(format!("failed to write .s2allowlist: {}", e)))?;
-    }
+    let mut file = open_allowlist_append()?;
 
     for h in &added {
-        // Find matching findings — warn if prefix is ambiguous
         let matches: Vec<&Finding> = findings
             .iter()
             .filter(|f| f.hash.starts_with(h) || h.starts_with(f.hash.as_str()))
@@ -997,10 +992,6 @@ pub fn run(
         }
     }
 
-    if !allow_with_context.is_empty() {
-        return add_to_allowlist_with_context(&allow_with_context, &all_findings);
-    }
-
     // Apply allowlist
     let allowlist = load_allowlist();
     let mut allowed_count = 0;
@@ -1011,6 +1002,11 @@ pub fn run(
                 allowed_count += 1;
             }
         }
+    }
+
+    if !allow_with_context.is_empty() {
+        all_findings.retain(|f| !f.allowed);
+        return add_to_allowlist_with_context(&allow_with_context, &all_findings);
     }
 
     if json {
