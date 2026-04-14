@@ -357,6 +357,70 @@ fn add_to_allowlist(hashes: &[String]) -> Result<(), S2Error> {
     Ok(())
 }
 
+fn add_to_allowlist_with_context(hashes: &[String], findings: &[Finding]) -> Result<(), S2Error> {
+    for h in hashes {
+        if h.len() < 8 {
+            eprintln!("s2: hash too short (minimum 8 characters): {}", h);
+            process::exit(1);
+        }
+        if !h.chars().all(|c| c.is_ascii_hexdigit()) {
+            eprintln!("s2: invalid hash (must be hex): {}", h);
+            process::exit(1);
+        }
+    }
+
+    let path = Path::new(".s2allowlist");
+    let existing = load_allowlist();
+
+    let added: Vec<&str> = hashes
+        .iter()
+        .filter(|h| {
+            if existing.contains(h.as_str()) {
+                eprintln!("Already in .s2allowlist: {}", h);
+                false
+            } else {
+                true
+            }
+        })
+        .map(|h| h.as_str())
+        .collect();
+
+    if added.is_empty() {
+        return Ok(());
+    }
+
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|e| S2Error::Config(format!("failed to open .s2allowlist: {}", e)))?;
+
+    for h in &added {
+        if let Some(f) = findings
+            .iter()
+            .find(|f| is_allowed(&f.hash, &HashSet::from([h.to_string()])))
+        {
+            let ctx = match &f.key {
+                Some(k) => format!(
+                    "# {}:{} — {} — {} ({})",
+                    f.file, f.line, k, f.rule, f.description
+                ),
+                None => format!("# {}:{} — {} ({})", f.file, f.line, f.rule, f.description),
+            };
+            writeln!(file, "{}", ctx)
+                .map_err(|e| S2Error::Config(format!("failed to write .s2allowlist: {}", e)))?;
+        }
+        writeln!(file, "{}", h)
+            .map_err(|e| S2Error::Config(format!("failed to write .s2allowlist: {}", e)))?;
+    }
+
+    eprintln!(
+        "Added {} hash(es) to .s2allowlist (with context)",
+        added.len()
+    );
+    Ok(())
+}
+
 fn collect_staged_files() -> Result<Vec<PathBuf>, S2Error> {
     let output = process::Command::new("git")
         .args(["diff", "--cached", "--name-only", "--diff-filter=ACMR"])
@@ -864,6 +928,7 @@ pub fn run(
     entropy_threshold: f64,
     learn: Option<PathBuf>,
     allow: Vec<String>,
+    allow_with_context: Vec<String>,
     list_rules: bool,
 ) -> Result<(), S2Error> {
     let rules = build_rules(config)?;
@@ -898,6 +963,10 @@ pub fn run(
             Ok(findings) => all_findings.extend(findings),
             Err(_) => continue,
         }
+    }
+
+    if !allow_with_context.is_empty() {
+        return add_to_allowlist_with_context(&allow_with_context, &all_findings);
     }
 
     // Apply allowlist
@@ -980,6 +1049,10 @@ pub fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    /// Mutex to serialize tests that change the process-wide current directory
+    static CWD_LOCK: Mutex<()> = Mutex::new(());
 
     fn default_config() -> Config {
         Config::default()
@@ -1430,5 +1503,127 @@ mod tests {
 
         let files = collect_files(&[env_path.clone()], false, &[]);
         assert_eq!(files, vec![env_path]);
+    }
+
+    #[test]
+    fn test_allow_with_context_writes_comment_and_hash() {
+        let _lock = CWD_LOCK.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let allowlist_path = dir.path().join(".s2allowlist");
+        let _guard = SetCwd::new(dir.path());
+
+        let findings = vec![Finding {
+            file: "src/config.rs".to_string(),
+            line: 42,
+            key: Some("DB_PASSWORD".to_string()),
+            rule: "high-entropy".to_string(),
+            description: "High-entropy string".to_string(),
+            matched: "xK9m████████".to_string(),
+            confidence: "high".to_string(),
+            hash: "a1b2c3d4e5f6a7b8".to_string(),
+            allowed: false,
+        }];
+
+        add_to_allowlist_with_context(&["a1b2c3d4e5f6a7b8".to_string()], &findings).unwrap();
+
+        let content = std::fs::read_to_string(&allowlist_path).unwrap();
+        let lines: Vec<&str> = content.lines().collect();
+        assert_eq!(lines.len(), 2);
+        assert_eq!(
+            lines[0],
+            "# src/config.rs:42 — DB_PASSWORD — high-entropy (High-entropy string)"
+        );
+        assert_eq!(lines[1], "a1b2c3d4e5f6a7b8");
+    }
+
+    #[test]
+    fn test_allow_with_context_no_key_omits_key_from_comment() {
+        let _lock = CWD_LOCK.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let allowlist_path = dir.path().join(".s2allowlist");
+        let _guard = SetCwd::new(dir.path());
+
+        let findings = vec![Finding {
+            file: "deploy.sh".to_string(),
+            line: 7,
+            key: None,
+            rule: "aws-access-key".to_string(),
+            description: "AWS Access Key".to_string(),
+            matched: "AKIA████████".to_string(),
+            confidence: "high".to_string(),
+            hash: "b2c3d4e5f6a7b8c9".to_string(),
+            allowed: false,
+        }];
+
+        add_to_allowlist_with_context(&["b2c3d4e5f6a7b8c9".to_string()], &findings).unwrap();
+
+        let content = std::fs::read_to_string(&allowlist_path).unwrap();
+        let lines: Vec<&str> = content.lines().collect();
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0], "# deploy.sh:7 — aws-access-key (AWS Access Key)");
+        assert_eq!(lines[1], "b2c3d4e5f6a7b8c9");
+    }
+
+    #[test]
+    fn test_allow_with_context_no_matching_finding_writes_bare_hash() {
+        let _lock = CWD_LOCK.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let allowlist_path = dir.path().join(".s2allowlist");
+        let _guard = SetCwd::new(dir.path());
+
+        let findings: Vec<Finding> = vec![];
+
+        add_to_allowlist_with_context(&["c3d4e5f6a7b8c9d0".to_string()], &findings).unwrap();
+
+        let content = std::fs::read_to_string(&allowlist_path).unwrap();
+        let lines: Vec<&str> = content.lines().collect();
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0], "c3d4e5f6a7b8c9d0");
+    }
+
+    #[test]
+    fn test_allow_with_context_skips_duplicates() {
+        let _lock = CWD_LOCK.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let allowlist_path = dir.path().join(".s2allowlist");
+        std::fs::write(&allowlist_path, "d4e5f6a7b8c9d0e1\n").unwrap();
+        let _guard = SetCwd::new(dir.path());
+
+        let findings = vec![Finding {
+            file: "test.rs".to_string(),
+            line: 1,
+            key: None,
+            rule: "test".to_string(),
+            description: "Test".to_string(),
+            matched: "test".to_string(),
+            confidence: "high".to_string(),
+            hash: "d4e5f6a7b8c9d0e1".to_string(),
+            allowed: false,
+        }];
+
+        add_to_allowlist_with_context(&["d4e5f6a7b8c9d0e1".to_string()], &findings).unwrap();
+
+        let content = std::fs::read_to_string(&allowlist_path).unwrap();
+        // Should still be just the original line — no duplicate added
+        assert_eq!(content, "d4e5f6a7b8c9d0e1\n");
+    }
+
+    /// RAII guard to change cwd for a test and restore it after
+    struct SetCwd {
+        prev: PathBuf,
+    }
+
+    impl SetCwd {
+        fn new(dir: &Path) -> Self {
+            let prev = std::env::current_dir().unwrap();
+            std::env::set_current_dir(dir).unwrap();
+            SetCwd { prev }
+        }
+    }
+
+    impl Drop for SetCwd {
+        fn drop(&mut self) {
+            let _ = std::env::set_current_dir(&self.prev);
+        }
     }
 }

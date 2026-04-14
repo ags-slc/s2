@@ -100,9 +100,19 @@ fn main() {
             entropy,
             learn,
             allow,
+            allow_with_context,
             list_rules,
         } => commands::scan::run(
-            &config, paths, staged, no_ignore, json, entropy, learn, allow, list_rules,
+            &config,
+            paths,
+            staged,
+            no_ignore,
+            json,
+            entropy,
+            learn,
+            allow,
+            allow_with_context,
+            list_rules,
         ),
 
         Command::Completions { shell } => {
