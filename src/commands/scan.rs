@@ -488,6 +488,7 @@ const BUILTIN_SKIP_DIRS: &[&str] = &[
     "Pods",
     "bower_components",
     ".nuget",
+    ".next",
     ".git",
 ];
 
