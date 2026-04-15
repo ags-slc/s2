@@ -14,30 +14,97 @@ pub struct ParsedEntry {
 
 /// Parse a secrets file supporting both `export KEY=val` and `KEY=val` formats.
 /// Auto-detects format per line. Supports double-quoted, single-quoted, and unquoted values.
+/// Quoted values may span multiple lines (required for PEM blocks, certificates,
+/// private keys, etc.) — continuation lines are joined with literal `\n` until the
+/// opening quote is closed.
 pub fn parse_file(path: &Path, content: &str) -> Result<Vec<ParsedEntry>, S2Error> {
     let mut entries = Vec::new();
+    let lines: Vec<&str> = content.lines().collect();
+    let mut i = 0;
 
-    for (line_num, line) in content.lines().enumerate() {
-        let line = line.trim();
+    while i < lines.len() {
+        let start_line = i + 1;
+        let first = lines[i].trim();
 
         // Skip empty lines and comments
-        if line.is_empty() || line.starts_with('#') {
+        if first.is_empty() || first.starts_with('#') {
+            i += 1;
             continue;
         }
 
-        match parse_line(line) {
+        // If this logical entry opens a quote that isn't closed on the same line,
+        // keep accumulating raw lines (preserving newlines) until it closes. This
+        // is what lets multi-line secrets like PEM-encoded keys round-trip through
+        // `.env`-style files.
+        let mut logical = first.to_string();
+        if let Some(quote) = open_quote(&logical) {
+            while !quote_closed(&logical, quote) && i + 1 < lines.len() {
+                i += 1;
+                logical.push('\n');
+                logical.push_str(lines[i]);
+            }
+        }
+
+        match parse_line(&logical) {
             Some(entry) => entries.push(entry),
             None => {
                 return Err(S2Error::ParseError {
                     path: PathBuf::from(path),
-                    line: line_num + 1,
-                    message: format!("invalid format: {}", line),
+                    line: start_line,
+                    message: format!("invalid format: {}", logical),
                 });
             }
         }
+        i += 1;
     }
 
     Ok(entries)
+}
+
+/// Returns the opening quote character (`"` or `'`) of the value, if one exists.
+/// Used to decide whether subsequent lines are continuations of the current entry.
+fn open_quote(logical: &str) -> Option<char> {
+    let s = logical.strip_prefix("export ").unwrap_or(logical);
+    let eq = s.find('=')?;
+    let value = s[eq + 1..].trim_start();
+    match value.chars().next()? {
+        '"' => Some('"'),
+        '\'' => Some('\''),
+        _ => None,
+    }
+}
+
+/// Whether the quoted value that starts in `logical` has been closed. Mirrors the
+/// escape rules used by `parse_double_quoted` / `parse_single_quoted` so we don't
+/// disagree about where a string ends.
+fn quote_closed(logical: &str, quote: char) -> bool {
+    let s = logical.strip_prefix("export ").unwrap_or(logical);
+    let Some(eq) = s.find('=') else {
+        return true;
+    };
+    let value = s[eq + 1..].trim_start();
+    // Skip the opening quote itself.
+    let rest = &value[1..];
+
+    if quote == '"' {
+        let mut chars = rest.chars();
+        while let Some(c) = chars.next() {
+            match c {
+                '\\' => {
+                    // Escape consumes the next char — matches parse_double_quoted.
+                    if chars.next().is_none() {
+                        return false;
+                    }
+                }
+                '"' => return true,
+                _ => {}
+            }
+        }
+        false
+    } else {
+        // Single-quoted: literal, no escapes — any `'` closes it.
+        rest.contains('\'')
+    }
 }
 
 fn parse_line(line: &str) -> Option<ParsedEntry> {
@@ -242,6 +309,65 @@ mod tests {
         assert_eq!(parsed.len(), 2);
         assert_eq!(parsed[0].value.expose_secret(), "value");
         assert_eq!(parsed[1].value.expose_secret(), "has spaces");
+    }
+
+    #[test]
+    fn test_multiline_double_quoted_value() {
+        let content = "PRIVATE_KEY=\"-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG\n-----END PRIVATE KEY-----\"\nNEXT=ok\n";
+        let entries = parse_file(Path::new("test"), content).unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].key, "PRIVATE_KEY");
+        assert_eq!(
+            entries[0].value.expose_secret(),
+            "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG\n-----END PRIVATE KEY-----"
+        );
+        assert_eq!(entries[1].key, "NEXT");
+        assert_eq!(entries[1].value.expose_secret(), "ok");
+    }
+
+    #[test]
+    fn test_multiline_single_quoted_value() {
+        let content = "CERT='line1\nline2\nline3'\nNEXT=ok\n";
+        let entries = parse_file(Path::new("test"), content).unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].value.expose_secret(), "line1\nline2\nline3");
+        assert_eq!(entries[1].key, "NEXT");
+    }
+
+    #[test]
+    fn test_multiline_with_export_prefix() {
+        let content = "export PRIVATE_KEY=\"-----BEGIN KEY-----\nabc\n-----END KEY-----\"\n";
+        let entries = parse_file(Path::new("test"), content).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].key, "PRIVATE_KEY");
+        assert_eq!(
+            entries[0].value.expose_secret(),
+            "-----BEGIN KEY-----\nabc\n-----END KEY-----"
+        );
+    }
+
+    #[test]
+    fn test_multiline_roundtrip_via_serialize() {
+        let content = "PRIVATE_KEY=\"-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG\n-----END PRIVATE KEY-----\"\n";
+        let entries = parse_file(Path::new("test"), content).unwrap();
+        let serialized = serialize_entries(&entries);
+        let reparsed = parse_file(Path::new("test"), &serialized).unwrap();
+        assert_eq!(reparsed.len(), 1);
+        assert_eq!(
+            reparsed[0].value.expose_secret(),
+            entries[0].value.expose_secret()
+        );
+    }
+
+    #[test]
+    fn test_unterminated_multiline_quote_errors() {
+        // Opening quote never closes → parse must fail rather than silently swallow
+        // the rest of the file.
+        let content = "PRIVATE_KEY=\"-----BEGIN KEY-----\nabc\nNEXT=ok\n";
+        // ParsedEntry intentionally doesn't derive Debug (wraps SecretString),
+        // so we match on the Result directly instead of calling unwrap_err.
+        let result = parse_file(Path::new("test"), content);
+        assert!(matches!(result, Err(S2Error::ParseError { .. })));
     }
 
     #[test]

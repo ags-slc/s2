@@ -335,6 +335,54 @@ fn test_migrate_warns_on_existing_plaintext_target() {
 }
 
 #[test]
+fn test_migrate_multiline_value() {
+    // Certificates, PEM-encoded keys, and other multi-line secrets are the
+    // canonical reason someone would stash a value in a `.env`. The quoted
+    // multi-line form must survive migrate → write → decrypt → exec intact.
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("import.env");
+    let target = dir.path().join("secrets.env");
+
+    let pem = "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQ==\n-----END PRIVATE KEY-----";
+    let source_content = format!("PRIVATE_KEY=\"{}\"\nOTHER=plain\n", pem);
+    std::fs::write(&source, &source_content).unwrap();
+
+    Command::cargo_bin("s2")
+        .unwrap()
+        .args(["init", "--no-encrypt", target.to_str().unwrap()])
+        .assert()
+        .success();
+
+    Command::cargo_bin("s2")
+        .unwrap()
+        .args([
+            "migrate",
+            source.to_str().unwrap(),
+            "-f",
+            target.to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("2 added"));
+
+    // Value survives the round-trip: `exec env` prints it back with the same
+    // embedded newlines.
+    Command::cargo_bin("s2")
+        .unwrap()
+        .args([
+            "exec",
+            "-f",
+            target.to_str().unwrap(),
+            "--",
+            "printenv",
+            "PRIVATE_KEY",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(pem));
+}
+
+#[test]
 fn test_migrate_non_tty_output_does_not_leak_values() {
     let dir = tempfile::tempdir().unwrap();
     let source = dir.path().join("import.env");
