@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use secrecy::{ExposeSecret, SecretString};
+use secrecy::ExposeSecret;
 
 use crate::config::{self, Config};
 use crate::crypto;
@@ -134,18 +134,18 @@ pub fn run(config: &Config, source: PathBuf, file: Option<PathBuf>) -> Result<()
             continue;
         }
 
-        let raw = src.value.expose_secret();
-        if raw.is_empty() {
-            // Parallel to `s2 set` which rejects empty stdin — an empty secret is
-            // meaningless. Skip but keep going so one junk line doesn't abort a
-            // 50-key import.
-            skipped_empty.push(src.key);
-            continue;
-        }
-
-        let value_len = raw.chars().count();
-        let masked_value = mask::redact_match(raw);
-        let new_value = SecretString::from(raw.to_string());
+        let (value_len, masked_value) = {
+            let raw = src.value.expose_secret();
+            if raw.is_empty() {
+                // Parallel to `s2 set` which rejects empty stdin — an empty secret is
+                // meaningless. Skip but keep going so one junk line doesn't abort a
+                // 50-key import.
+                skipped_empty.push(src.key);
+                continue;
+            }
+            (raw.chars().count(), mask::redact_match(raw))
+        };
+        let new_value = src.value;
 
         let action = if let Some(&idx) = target_index.get(&src.key) {
             target_entries[idx].value = new_value;
@@ -202,7 +202,7 @@ pub fn run(config: &Config, source: PathBuf, file: Option<PathBuf>) -> Result<()
 
     if !target_existed {
         eprintln!(
-            "encrypted {} (passphrase stored in keychain)",
+            "encrypted {} (passphrase stored in credential store)",
             target.display()
         );
     } else if was_existing_plaintext && !migrated.is_empty() {

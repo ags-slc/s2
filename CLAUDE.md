@@ -27,7 +27,7 @@ cargo fmt --check                  # format check
 - **`execve` replaces the process** in `s2 exec` — no parent process persists after exec.
 - **File permissions are enforced** — s2 refuses to read files that aren't 0600.
 - **stdin-only for secret values** — `s2 set` reads from stdin, never CLI args.
-- **Bulk import via `s2 migrate`** — reads a plaintext `.env`-style file (permissions not enforced on the source; it's treated as throwaway input) and upserts each `KEY=value` into the target secret file in a single atomic decrypt/write cycle. `*` prefix-import keys are skipped.
+- **Bulk import via `s2 migrate`** — reads a plaintext `.env`-style file (permissions not enforced on the source; it's treated as throwaway input) and upserts each `KEY=value` into the target secret file. `*` prefix-import keys are skipped.
 - **Encrypted by default** — `s2 init` creates encrypted files. `s2 set`/`s2 unset` transparently decrypt, modify, and re-encrypt. Pass `--no-encrypt` to init for plaintext.
 - **Keychain with file fallback** — passphrases stored in macOS Keychain or Linux Secret Service (D-Bus). On headless systems without a keyring, falls back to `~/.config/s2/keys/` with 0600 permissions.
 - **Feature flags**: `provider-ssm` (default), `provider-vault` (opt-in). SSM deps are heavy; Vault needs `reqwest`.

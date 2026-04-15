@@ -3,7 +3,7 @@ use predicates::prelude::*;
 
 // NOTE: assert_cmd pipes stderr, so `s2 migrate` takes the non-TTY "terse" output
 // path. These tests assert the one-line summary contract. The TTY pretty-print
-// path is verified by `mask_value` unit tests in src/commands/migrate.rs and
+// path is verified by `mask::redact_match` unit tests in src/mask.rs and
 // manual inspection.
 
 #[test]
@@ -272,7 +272,9 @@ fn test_migrate_encrypts_new_target_by_default() {
         .success()
         .stderr(predicate::str::contains("1 added"))
         .stderr(predicate::str::contains("encrypted"))
-        .stderr(predicate::str::contains("passphrase stored in keychain"));
+        .stderr(predicate::str::contains(
+            "passphrase stored in credential store",
+        ));
 
     let content = std::fs::read_to_string(&target).unwrap();
     assert!(
