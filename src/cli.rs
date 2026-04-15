@@ -84,6 +84,16 @@ pub enum Command {
         file: Option<PathBuf>,
     },
 
+    /// Import every KEY=value from a .env-style file into a secret file
+    Migrate {
+        /// Source .env file to import from (absolute or relative path)
+        source: PathBuf,
+
+        /// Target secret file (defaults to first entry in config.default_files)
+        #[arg(short = 'f', long = "file", value_name = "FILE")]
+        file: Option<PathBuf>,
+    },
+
     /// Remove a secret from a file
     Unset {
         /// Key name

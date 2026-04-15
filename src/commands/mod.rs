@@ -6,6 +6,7 @@ pub mod exec;
 pub mod hook;
 pub mod init;
 pub mod list;
+pub mod migrate;
 pub mod redact;
 pub mod scan;
 pub mod set;

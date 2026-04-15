@@ -9,6 +9,7 @@ use sha2::{Digest, Sha256};
 
 use crate::config::Config;
 use crate::error::S2Error;
+use crate::mask::redact_match;
 use crate::parser;
 
 struct ScanRule {
@@ -267,15 +268,6 @@ fn shannon_entropy(s: &str) -> f64 {
 fn is_binary(content: &[u8]) -> bool {
     let check_len = content.len().min(8192);
     content[..check_len].contains(&0)
-}
-
-fn redact_match(s: &str) -> String {
-    if s.len() <= 8 {
-        return s.to_string();
-    }
-    let prefix: String = s.chars().take(4).collect();
-    let suffix_len = s.len().min(40) - 4;
-    format!("{}{}", prefix, "\u{2588}".repeat(suffix_len.min(16)))
 }
 
 fn compute_finding_hash(key: Option<&str>, raw_value: &str) -> String {
@@ -1165,15 +1157,6 @@ mod tests {
     fn test_is_binary() {
         assert!(is_binary(&[0x89, 0x50, 0x4E, 0x47, 0x00]));
         assert!(!is_binary(b"just plain text"));
-    }
-
-    #[test]
-    fn test_redact_match() {
-        assert_eq!(
-            redact_match("AKIAIOSFODNN7EXAMPLE"),
-            "AKIA\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}"
-        );
-        assert_eq!(redact_match("short"), "short");
     }
 
     #[test]
