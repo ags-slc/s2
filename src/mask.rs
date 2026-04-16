@@ -12,11 +12,12 @@
 /// block-char fill, capped at 16 blocks so very long secrets don't dominate
 /// the column.
 pub fn redact_match(s: &str) -> String {
-    if s.len() <= 8 {
+    let char_count = s.chars().count();
+    if char_count <= 8 {
         return s.to_string();
     }
     let prefix: String = s.chars().take(4).collect();
-    let suffix_len = s.len().min(40) - 4;
+    let suffix_len = char_count.min(40) - 4;
     format!("{}{}", prefix, "\u{2588}".repeat(suffix_len.min(16)))
 }
 

@@ -1,3 +1,5 @@
+use std::os::unix::fs::PermissionsExt;
+
 use assert_cmd::Command;
 use predicates::prelude::*;
 
@@ -161,11 +163,7 @@ fn test_migrate_normalizes_target_dup_keys() {
     let target = dir.path().join("secrets.env");
 
     std::fs::write(&target, "DUP=old1\nSAFE=untouched\nDUP=old2\n").unwrap();
-    std::fs::set_permissions(
-        &target,
-        <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o600),
-    )
-    .unwrap();
+    std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o600)).unwrap();
 
     std::fs::write(&source, "DUP=new\n").unwrap();
 
