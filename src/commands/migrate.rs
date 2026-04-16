@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::io::IsTerminal;
 use std::path::PathBuf;
 
 use secrecy::ExposeSecret;
@@ -243,7 +244,7 @@ fn print_summary(
     // When stderr isn't a TTY (piped, redirected, CI), fall back to a single-line
     // terse summary that matches the existing `set`/`unset` output style — no block
     // chars, no alignment, grep-friendly.
-    if !atty::is(atty::Stream::Stderr) {
+    if !std::io::stderr().is_terminal() {
         let mut parts = vec![format!("{} added", added), format!("{} updated", updated)];
         if skipped > 0 {
             parts.push(format!("{} skipped", skipped));

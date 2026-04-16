@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process;
 
@@ -871,7 +871,7 @@ fn run_learn(learn_file: &Path, rules: &[ScanRule], entropy_threshold: f64) -> R
         toml_block.push_str(&entry);
     }
 
-    if atty::is(atty::Stream::Stdin) {
+    if std::io::stdin().is_terminal() {
         eprint!("Add to ~/.config/s2/config.toml? [y/n] ");
         io::stderr().flush().ok();
         let mut answer = String::new();

@@ -1,4 +1,4 @@
-use std::io::Read;
+use std::io::{IsTerminal, Read};
 use std::path::PathBuf;
 
 use secrecy::SecretString;
@@ -16,7 +16,7 @@ pub fn run(config: &Config, key: String, file: Option<PathBuf>) -> Result<(), S2
     let path = config::resolve_single_file(config, &file)?;
 
     // Read value from stdin
-    if atty::is(atty::Stream::Stdin) {
+    if std::io::stdin().is_terminal() {
         eprint!("Enter value for {}: ", key);
     }
 

@@ -51,7 +51,19 @@ pub fn parse_file(path: &Path, content: &str) -> Result<Vec<ParsedEntry>, S2Erro
                 return Err(S2Error::ParseError {
                     path: PathBuf::from(path),
                     line: start_line,
-                    message: format!("invalid format: {}", logical),
+                    message: if open_quote(&logical).is_some() {
+                        format!(
+                            "unterminated quote starting at line {}: {}",
+                            start_line,
+                            if logical.len() > 80 {
+                                format!("{}...", &logical[..80])
+                            } else {
+                                logical
+                            }
+                        )
+                    } else {
+                        format!("invalid format: {}", logical)
+                    },
                 });
             }
         }
