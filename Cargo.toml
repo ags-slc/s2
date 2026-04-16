@@ -1,6 +1,6 @@
 [package]
 name = "s2-simple-secrets"
-version = "1.4.1"
+version = "1.5.0"
 edition = "2021"
 description = "Simple Secrets — inject secrets into subprocesses without ambient environment exposure"
 license = "MIT"
