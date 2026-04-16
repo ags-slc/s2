@@ -5,6 +5,7 @@ mod config;
 mod crypto;
 mod error;
 mod keychain;
+mod mask;
 mod parser;
 mod permissions;
 mod provider;
@@ -78,6 +79,8 @@ fn main() {
         Command::Init { path, no_encrypt } => commands::init::run(&config, path, no_encrypt),
 
         Command::Set { key, file } => commands::set::run(&config, key, file),
+
+        Command::Migrate { source, file } => commands::migrate::run(&config, source, file),
 
         Command::Unset { key, file } => commands::unset::run(&config, key, file),
 

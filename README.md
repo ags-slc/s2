@@ -54,6 +54,9 @@ s2 init ~/.secrets
 # set/unset transparently handle encrypted files
 echo "AKIA..." | s2 set AWS_SECRET_ACCESS_KEY -f ~/.secrets
 
+# Bulk import an existing .env file (upserts each KEY=value into ~/.secrets)
+s2 migrate ./legacy.env -f ~/.secrets
+
 # Run any command with secrets injected
 s2 exec -f ~/.secrets -- aws s3 ls
 s2 exec -f ~/.secrets -- terraform apply
@@ -82,6 +85,7 @@ kubectl logs pod | s2 redact -f ~/.secrets
 | `s2 init` | Create a new secret file (encrypted by default, `--no-encrypt` for plaintext) |
 | `s2 set` | Set a secret (reads value from stdin, handles encrypted files) |
 | `s2 unset` | Remove a secret from a file (handles encrypted files) |
+| `s2 migrate` | Bulk import `KEY=value` entries from a `.env`-style file into a secret file |
 | `s2 encrypt` | Encrypt an existing plaintext file with age |
 | `s2 decrypt` | Decrypt an age-encrypted file |
 | `s2 edit` | Decrypt → $EDITOR → re-encrypt |
