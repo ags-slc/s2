@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::io::IsTerminal;
 use std::path::PathBuf;
 
-use secrecy::ExposeSecret;
+use secrecy::{ExposeSecret, SecretString};
 
 use crate::config::{self, Config};
 use crate::crypto;
@@ -53,6 +53,19 @@ fn dedupe_last_wins(entries: Vec<ParsedEntry>) -> Vec<ParsedEntry> {
     result
 }
 
+/// Normalize an SSM path prefix into the form used inside an `ssm:///` URI.
+/// Strips any surrounding slashes and re-adds a single leading slash so the
+/// result is always `/segment[/segment...]`. Rejects an empty prefix.
+fn normalize_ssm_prefix(raw: &str) -> Result<String, S2Error> {
+    let trimmed = raw.trim().trim_start_matches('/').trim_end_matches('/');
+    if trimmed.is_empty() {
+        return Err(S2Error::Provider(
+            "--ssm prefix must be a non-empty path (e.g. /prod/myapp)".into(),
+        ));
+    }
+    Ok(format!("/{trimmed}"))
+}
+
 /// Bulk-import KEY=value entries from a plaintext `.env`-style file into a secret file.
 /// Upserts existing keys, appends new ones, skips empty values and `*` glob keys, and
 /// collapses duplicate keys last-wins in both source and target.
@@ -65,7 +78,18 @@ fn dedupe_last_wins(entries: Vec<ParsedEntry>) -> Vec<ParsedEntry> {
 /// - **Existing plaintext target** → written plaintext, but a stderr warning is
 ///   emitted because storing imported secrets in cleartext is almost never the
 ///   intent (and silently flipping to encrypted would surprise the other way).
-pub fn run(config: &Config, source: PathBuf, file: Option<PathBuf>) -> Result<(), S2Error> {
+///
+/// SSM mode (`ssm_prefix = Some(...)`): source values are *discarded* and each
+/// KEY is rewritten to `ssm:///<prefix>/<KEY>`. The resulting file is a reference
+/// file — real values live in AWS SSM and resolve at exec time. The plaintext
+/// warning is suppressed in this mode because the on-disk values are URIs.
+pub fn run(
+    config: &Config,
+    source: PathBuf,
+    file: Option<PathBuf>,
+    ssm_prefix: Option<String>,
+) -> Result<(), S2Error> {
+    let ssm_prefix = ssm_prefix.map(|p| normalize_ssm_prefix(&p)).transpose()?;
     let target = config::resolve_single_file(config, &file)?;
 
     if !source.exists() {
@@ -135,18 +159,26 @@ pub fn run(config: &Config, source: PathBuf, file: Option<PathBuf>) -> Result<()
             continue;
         }
 
-        let (value_len, masked_value) = {
-            let raw = src.value.expose_secret();
-            if raw.is_empty() {
-                // Parallel to `s2 set` which rejects empty stdin — an empty secret is
-                // meaningless. Skip but keep going so one junk line doesn't abort a
-                // 50-key import.
-                skipped_empty.push(src.key);
-                continue;
-            }
-            (raw.chars().count(), mask::redact_match(raw))
+        // We still require a non-empty source value even in SSM mode so the input
+        // stays a valid `.env` file; the value itself is discarded, only the key
+        // is used to build the URI.
+        let raw_value_len = src.value.expose_secret().chars().count();
+        if raw_value_len == 0 {
+            skipped_empty.push(src.key);
+            continue;
+        }
+
+        let (new_value, value_len, masked_value) = if let Some(prefix) = ssm_prefix.as_deref() {
+            // Build the SSM reference URI from the key. The value is not secret —
+            // it's a pointer — so surface it literally in the summary rather than
+            // masking.
+            let uri = format!("ssm://{prefix}/{}", src.key);
+            let len = uri.chars().count();
+            (SecretString::from(uri.clone()), len, uri)
+        } else {
+            let masked = mask::redact_match(src.value.expose_secret());
+            (src.value, raw_value_len, masked)
         };
-        let new_value = src.value;
 
         let action = if let Some(&idx) = target_index.get(&src.key) {
             target_entries[idx].value = new_value;
@@ -206,7 +238,9 @@ pub fn run(config: &Config, source: PathBuf, file: Option<PathBuf>) -> Result<()
             "encrypted {} (passphrase stored in credential store)",
             target.display()
         );
-    } else if was_existing_plaintext && !migrated.is_empty() {
+    } else if was_existing_plaintext && !migrated.is_empty() && ssm_prefix.is_none() {
+        // In SSM mode the on-disk values are reference URIs, not secrets, so
+        // the "secrets in cleartext" warning would be actively misleading.
         eprintln!();
         eprintln!(
             "warning: {} is plaintext; {} secret(s) stored in cleartext.",
@@ -320,5 +354,30 @@ fn print_summary(
         for key in skipped_empty {
             eprintln!("  - {}", key);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_prefix_strips_slashes() {
+        assert_eq!(normalize_ssm_prefix("/prod/myapp").unwrap(), "/prod/myapp");
+        assert_eq!(normalize_ssm_prefix("prod/myapp").unwrap(), "/prod/myapp");
+        assert_eq!(normalize_ssm_prefix("/prod/myapp/").unwrap(), "/prod/myapp");
+        assert_eq!(normalize_ssm_prefix("prod/myapp/").unwrap(), "/prod/myapp");
+        assert_eq!(
+            normalize_ssm_prefix("  /prod/myapp/  ").unwrap(),
+            "/prod/myapp"
+        );
+    }
+
+    #[test]
+    fn normalize_prefix_rejects_empty() {
+        assert!(normalize_ssm_prefix("").is_err());
+        assert!(normalize_ssm_prefix("/").is_err());
+        assert!(normalize_ssm_prefix("///").is_err());
+        assert!(normalize_ssm_prefix("   ").is_err());
     }
 }

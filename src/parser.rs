@@ -102,12 +102,8 @@ fn quote_closed(logical: &str, quote: char) -> bool {
         let mut chars = rest.chars();
         while let Some(c) = chars.next() {
             match c {
-                '\\' => {
-                    // Escape consumes the next char — matches parse_double_quoted.
-                    if chars.next().is_none() {
-                        return false;
-                    }
-                }
+                // Escape consumes the next char — matches parse_double_quoted.
+                '\\' if chars.next().is_none() => return false,
                 '"' => return true,
                 _ => {}
             }

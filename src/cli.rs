@@ -92,6 +92,13 @@ pub enum Command {
         /// Target secret file (defaults to first entry in config.default_files)
         #[arg(short = 'f', long = "file", value_name = "FILE")]
         file: Option<PathBuf>,
+
+        /// Rewrite each value as an SSM URI under the given path prefix
+        /// (e.g. `--ssm /prod/myapp` produces `KEY=ssm:///prod/myapp/KEY`).
+        /// Source values are discarded — useful for converting a plaintext
+        /// `.env` into a reference file whose real values live in SSM.
+        #[arg(long = "ssm", value_name = "PREFIX")]
+        ssm: Option<String>,
     },
 
     /// Remove a secret from a file
