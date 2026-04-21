@@ -80,7 +80,9 @@ fn main() {
 
         Command::Set { key, file } => commands::set::run(&config, key, file),
 
-        Command::Migrate { source, file } => commands::migrate::run(&config, source, file),
+        Command::Migrate { source, file, ssm } => {
+            commands::migrate::run(&config, source, file, ssm)
+        }
 
         Command::Unset { key, file } => commands::unset::run(&config, key, file),
 

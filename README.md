@@ -57,6 +57,10 @@ echo "AKIA..." | s2 set AWS_SECRET_ACCESS_KEY -f ~/.secrets
 # Bulk import an existing .env file (upserts each KEY=value into ~/.secrets)
 s2 migrate ./legacy.env -f ~/.secrets
 
+# Convert a plaintext .env into an SSM-reference file (values discarded,
+# each KEY becomes `ssm:///<prefix>/<KEY>`). Resolves at `s2 exec` time.
+s2 migrate ./legacy.env -f ~/.secrets --ssm /prod/myapp
+
 # Run any command with secrets injected
 s2 exec -f ~/.secrets -- aws s3 ls
 s2 exec -f ~/.secrets -- terraform apply
@@ -85,7 +89,7 @@ kubectl logs pod | s2 redact -f ~/.secrets
 | `s2 init` | Create a new secret file (encrypted by default, `--no-encrypt` for plaintext) |
 | `s2 set` | Set a secret (reads value from stdin, handles encrypted files) |
 | `s2 unset` | Remove a secret from a file (handles encrypted files) |
-| `s2 migrate` | Bulk import `KEY=value` entries from a `.env`-style file into a secret file |
+| `s2 migrate` | Bulk import `KEY=value` entries from a `.env`-style file into a secret file. Pass `--ssm <prefix>` to rewrite each value as `ssm:///<prefix>/<KEY>` instead of copying the source value. |
 | `s2 encrypt` | Encrypt an existing plaintext file with age |
 | `s2 decrypt` | Decrypt an age-encrypted file |
 | `s2 edit` | Decrypt → $EDITOR → re-encrypt |
@@ -313,6 +317,15 @@ API_KEY=ssm:///prod/apps/myapp/secrets/API_KEY
 The `*=ssm:///prefix/` syntax auto-discovers all parameters under the path and injects them as environment variables. Parameter names are converted: `/prod/apps/myapp/secrets/db_password` becomes `DB_PASSWORD` (prefix stripped, `/`/`-`/`.` replaced with `_`, uppercased).
 
 By default, nested paths are included (recursive). Use `#shallow` to fetch only immediate children: `*=ssm:///prefix/#shallow`.
+
+**Converting an existing `.env` into a reference file:**
+
+```bash
+# Produces: DB_PASSWORD=ssm:///prod/apps/myapp/DB_PASSWORD (etc.)
+s2 migrate ./legacy.env -f .secrets --ssm /prod/apps/myapp
+```
+
+Source values are *discarded* — the resulting file contains only `ssm://` URIs that resolve at `s2 exec` time. Upload the real values to SSM separately (the AWS CLI, Terraform, or console).
 
 ```yaml
 - name: Run migrations

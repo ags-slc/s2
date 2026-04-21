@@ -407,3 +407,392 @@ fn test_migrate_non_tty_output_does_not_leak_values() {
         .success()
         .stderr(predicate::str::contains("FAKE_SECRET_VALUE_FOR_TEST_ONLY").not());
 }
+
+// -------------------- --ssm mode --------------------
+
+#[test]
+fn test_migrate_ssm_rewrites_values_as_uris() {
+    // Core contract: source values are discarded, each key becomes
+    // `ssm:///<prefix>/<KEY>` verbatim. The on-disk file is a reference file.
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("legacy.env");
+    let target = dir.path().join("refs.env");
+
+    std::fs::write(
+        &source,
+        "DATABASE_URL=postgres://u:p@h/db\nAPI_KEY=sk_live_XXXXXX\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("s2")
+        .unwrap()
+        .args(["init", "--no-encrypt", target.to_str().unwrap()])
+        .assert()
+        .success();
+
+    Command::cargo_bin("s2")
+        .unwrap()
+        .args([
+            "migrate",
+            source.to_str().unwrap(),
+            "-f",
+            target.to_str().unwrap(),
+            "--ssm",
+            "/prod/myapp",
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("2 added"));
+
+    let written = std::fs::read_to_string(&target).unwrap();
+    assert!(
+        written.contains("DATABASE_URL=ssm:///prod/myapp/DATABASE_URL"),
+        "expected SSM reference for DATABASE_URL, got:\n{}",
+        written
+    );
+    assert!(
+        written.contains("API_KEY=ssm:///prod/myapp/API_KEY"),
+        "expected SSM reference for API_KEY, got:\n{}",
+        written
+    );
+    // Real values must NOT appear in the target — that's the whole point.
+    assert!(
+        !written.contains("postgres://u:p@h/db"),
+        "source value leaked into target file"
+    );
+    assert!(
+        !written.contains("sk_live_XXXXXX"),
+        "source value leaked into target file"
+    );
+}
+
+#[test]
+fn test_migrate_ssm_normalizes_prefix() {
+    // Trailing slashes, leading slashes, and whitespace all collapse to a
+    // single canonical form so users can't accidentally produce `ssm:////foo`
+    // or `ssm://foo//KEY`.
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("legacy.env");
+    let target = dir.path().join("refs.env");
+
+    std::fs::write(&source, "KEY=whatever\n").unwrap();
+
+    Command::cargo_bin("s2")
+        .unwrap()
+        .args(["init", "--no-encrypt", target.to_str().unwrap()])
+        .assert()
+        .success();
+
+    // Trailing slash on prefix must not produce a double slash.
+    Command::cargo_bin("s2")
+        .unwrap()
+        .args([
+            "migrate",
+            source.to_str().unwrap(),
+            "-f",
+            target.to_str().unwrap(),
+            "--ssm",
+            "/prod/app/",
+        ])
+        .assert()
+        .success();
+
+    let written = std::fs::read_to_string(&target).unwrap();
+    assert!(
+        written.contains("KEY=ssm:///prod/app/KEY"),
+        "trailing-slash prefix should normalize, got:\n{}",
+        written
+    );
+    assert!(!written.contains("ssm:///prod/app//KEY"));
+
+    // Prefix without a leading slash gets one added.
+    let target2 = dir.path().join("refs2.env");
+    Command::cargo_bin("s2")
+        .unwrap()
+        .args(["init", "--no-encrypt", target2.to_str().unwrap()])
+        .assert()
+        .success();
+    Command::cargo_bin("s2")
+        .unwrap()
+        .args([
+            "migrate",
+            source.to_str().unwrap(),
+            "-f",
+            target2.to_str().unwrap(),
+            "--ssm",
+            "prod/app",
+        ])
+        .assert()
+        .success();
+    let written2 = std::fs::read_to_string(&target2).unwrap();
+    assert!(
+        written2.contains("KEY=ssm:///prod/app/KEY"),
+        "bare prefix should get leading slash added, got:\n{}",
+        written2
+    );
+}
+
+#[test]
+fn test_migrate_ssm_rejects_empty_prefix() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("legacy.env");
+    let target = dir.path().join("refs.env");
+
+    std::fs::write(&source, "KEY=v\n").unwrap();
+
+    Command::cargo_bin("s2")
+        .unwrap()
+        .args(["init", "--no-encrypt", target.to_str().unwrap()])
+        .assert()
+        .success();
+
+    Command::cargo_bin("s2")
+        .unwrap()
+        .args([
+            "migrate",
+            source.to_str().unwrap(),
+            "-f",
+            target.to_str().unwrap(),
+            "--ssm",
+            "/",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--ssm prefix"));
+}
+
+#[test]
+fn test_migrate_ssm_still_skips_glob_and_empty() {
+    // --ssm doesn't change the skip rules for `*` (it's still not a real key)
+    // or empty values (no input = no rewrite target).
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("legacy.env");
+    let target = dir.path().join("refs.env");
+
+    std::fs::write(&source, "REAL=value\n*=ssm:///prod/other/\nEMPTY=\n").unwrap();
+
+    Command::cargo_bin("s2")
+        .unwrap()
+        .args(["init", "--no-encrypt", target.to_str().unwrap()])
+        .assert()
+        .success();
+
+    Command::cargo_bin("s2")
+        .unwrap()
+        .args([
+            "migrate",
+            source.to_str().unwrap(),
+            "-f",
+            target.to_str().unwrap(),
+            "--ssm",
+            "/prod/app",
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("1 added"))
+        .stderr(predicate::str::contains("2 skipped"));
+
+    let written = std::fs::read_to_string(&target).unwrap();
+    assert!(written.contains("REAL=ssm:///prod/app/REAL"));
+    assert!(!written.contains("*="));
+    assert!(!written.contains("EMPTY="));
+}
+
+#[test]
+fn test_migrate_ssm_no_plaintext_warning() {
+    // The cleartext warning is about secrets leaking onto disk. In SSM mode
+    // the on-disk values are URIs — no secret is stored — so the warning would
+    // be actively misleading and must be suppressed.
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("legacy.env");
+    let target = dir.path().join("refs.env");
+
+    std::fs::write(&source, "KEY=secret-value\n").unwrap();
+
+    Command::cargo_bin("s2")
+        .unwrap()
+        .args(["init", "--no-encrypt", target.to_str().unwrap()])
+        .assert()
+        .success();
+
+    Command::cargo_bin("s2")
+        .unwrap()
+        .args([
+            "migrate",
+            source.to_str().unwrap(),
+            "-f",
+            target.to_str().unwrap(),
+            "--ssm",
+            "/prod/app",
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("plaintext").not())
+        .stderr(predicate::str::contains("cleartext").not())
+        .stderr(predicate::str::contains("s2 encrypt").not());
+}
+
+#[test]
+fn test_migrate_ssm_does_not_leak_source_values() {
+    // The original plaintext value must never appear in stderr or the target —
+    // the whole point of --ssm is to *stop* handling the real values locally.
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("legacy.env");
+    let target = dir.path().join("refs.env");
+
+    std::fs::write(&source, "TOKEN=FAKE_LEAK_CANARY_ABC123\n").unwrap();
+
+    Command::cargo_bin("s2")
+        .unwrap()
+        .args(["init", "--no-encrypt", target.to_str().unwrap()])
+        .assert()
+        .success();
+
+    Command::cargo_bin("s2")
+        .unwrap()
+        .args([
+            "migrate",
+            source.to_str().unwrap(),
+            "-f",
+            target.to_str().unwrap(),
+            "--ssm",
+            "/prod/app",
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("FAKE_LEAK_CANARY_ABC123").not());
+
+    let written = std::fs::read_to_string(&target).unwrap();
+    assert!(
+        !written.contains("FAKE_LEAK_CANARY_ABC123"),
+        "source value leaked into target"
+    );
+}
+
+#[test]
+fn test_migrate_ssm_upserts_existing_keys() {
+    // When the target already has a KEY (perhaps with a real value or an old
+    // URI), --ssm should overwrite it with the new URI.
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("legacy.env");
+    let target = dir.path().join("refs.env");
+
+    std::fs::write(&source, "KEY=anything\nNEWKEY=anything\n").unwrap();
+
+    Command::cargo_bin("s2")
+        .unwrap()
+        .args(["init", "--no-encrypt", target.to_str().unwrap()])
+        .assert()
+        .success();
+    Command::cargo_bin("s2")
+        .unwrap()
+        .args(["set", "KEY", "-f", target.to_str().unwrap()])
+        .write_stdin("stale-literal-value")
+        .assert()
+        .success();
+
+    Command::cargo_bin("s2")
+        .unwrap()
+        .args([
+            "migrate",
+            source.to_str().unwrap(),
+            "-f",
+            target.to_str().unwrap(),
+            "--ssm",
+            "/prod/app",
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("1 added"))
+        .stderr(predicate::str::contains("1 updated"));
+
+    let written = std::fs::read_to_string(&target).unwrap();
+    assert!(written.contains("KEY=ssm:///prod/app/KEY"));
+    assert!(written.contains("NEWKEY=ssm:///prod/app/NEWKEY"));
+    assert!(!written.contains("stale-literal-value"));
+}
+
+#[test]
+fn test_migrate_ssm_into_new_encrypted_target() {
+    // --ssm still honours the "new target is encrypted by default" contract.
+    // The resulting file should be an age blob whose decrypted body contains
+    // the SSM URIs — consistent with how migrate always initialises new files.
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("legacy.env");
+    let target = dir.path().join("refs.env");
+
+    std::fs::write(&source, "FOO=v\n").unwrap();
+
+    Command::cargo_bin("s2")
+        .unwrap()
+        .args([
+            "migrate",
+            source.to_str().unwrap(),
+            "-f",
+            target.to_str().unwrap(),
+            "--ssm",
+            "/prod/app",
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("encrypted"));
+
+    let raw = std::fs::read_to_string(&target).unwrap();
+    assert!(raw.starts_with("-----BEGIN AGE ENCRYPTED FILE-----"));
+
+    // Decrypt to stdout and verify the URI made it through the encryption
+    // round-trip — avoids calling `list`, which would try to resolve the URI
+    // against real AWS SSM.
+    let decrypted = Command::cargo_bin("s2")
+        .unwrap()
+        .args(["decrypt", target.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(decrypted.status.success());
+    let plaintext = std::fs::read_to_string(&target).unwrap();
+    assert!(
+        plaintext.contains("FOO=ssm:///prod/app/FOO"),
+        "expected URI after decrypt round-trip, got:\n{}",
+        plaintext
+    );
+}
+
+#[test]
+fn test_migrate_ssm_uri_is_parseable_reference() {
+    // The URI we emit must match the format the SSM provider already accepts
+    // (`ssm:///path` with triple-slash = no authority). Smoke-test by reading
+    // the file back and checking the exact shape — regressions in format
+    // would silently break every migrated file.
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("legacy.env");
+    let target = dir.path().join("refs.env");
+
+    std::fs::write(&source, "DB_PASSWORD=x\n").unwrap();
+
+    Command::cargo_bin("s2")
+        .unwrap()
+        .args(["init", "--no-encrypt", target.to_str().unwrap()])
+        .assert()
+        .success();
+
+    Command::cargo_bin("s2")
+        .unwrap()
+        .args([
+            "migrate",
+            source.to_str().unwrap(),
+            "-f",
+            target.to_str().unwrap(),
+            "--ssm",
+            "/prod/apps/myapp/secrets",
+        ])
+        .assert()
+        .success();
+
+    let written = std::fs::read_to_string(&target).unwrap();
+    // Exact shape — triple slash (empty authority), prefix, then key appended verbatim.
+    assert!(
+        written.contains("DB_PASSWORD=ssm:///prod/apps/myapp/secrets/DB_PASSWORD"),
+        "URI format drift detected, got:\n{}",
+        written
+    );
+}
