@@ -740,15 +740,15 @@ fn test_migrate_ssm_into_new_encrypted_target() {
     let raw = std::fs::read_to_string(&target).unwrap();
     assert!(raw.starts_with("-----BEGIN AGE ENCRYPTED FILE-----"));
 
-    // Decrypt to stdout and verify the URI made it through the encryption
-    // round-trip — avoids calling `list`, which would try to resolve the URI
-    // against real AWS SSM.
-    let decrypted = Command::cargo_bin("s2")
+    // Decrypt the file in place, then read it back and verify the URI made it
+    // through the encryption round-trip — avoids calling `list`, which would
+    // try to resolve the URI against real AWS SSM.
+    let decrypt_result = Command::cargo_bin("s2")
         .unwrap()
         .args(["decrypt", target.to_str().unwrap()])
         .output()
         .unwrap();
-    assert!(decrypted.status.success());
+    assert!(decrypt_result.status.success());
     let plaintext = std::fs::read_to_string(&target).unwrap();
     assert!(
         plaintext.contains("FOO=ssm:///prod/app/FOO"),
