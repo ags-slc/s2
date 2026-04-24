@@ -33,6 +33,16 @@ cargo fmt --check                  # format check
 - **Feature flags**: `provider-ssm` (default), `provider-vault` (opt-in). SSM deps are heavy; Vault needs `reqwest`.
 - **`s2 scan` must be instant** — designed as a pre-commit hook, runs on every commit. No network calls, no heavy deps. Pure compiled regexes + O(n) Shannon entropy. No external databases, API calls, or signature downloads.
 - **Hook guard blocks secret exposure** — when AI agent hooks are configured, the guard blocks commands that would read secret files (`cat`, `grep`, etc.) or dump env vars (bare `env`/`printenv`). Enabled by default, configurable via `[hook.guard]`.
+- **Silent-failure integrations need explicit proof of life.** For features whose failure mode is "appears to work but does nothing" (hook output, guard blocks, webhook posts), add a test or invariant that proves the integration is actively intercepting — not just a test that the output *shape* looks right. Precedent: the Claude hook shipped without `hookEventName` for 17 days (2026-04-03 → 2026-04-24, fixed in PR #17) because "command ran normally" is indistinguishable from "command was wrapped and ran normally," and the guard-block path had the same omission — so `cat .secrets` under an AI agent was silently *not* blocked.
+
+## External Schema Adapters
+
+When a struct is serialized as input to an external tool's schema (AI agent hooks, webhooks, CI integrations), the following rules are merge-blocking:
+
+- **Link the schema from the source.** Each such struct (e.g. `ClaudeOutput`, `ClaudeBlockOutput`, `CursorOutput` in `src/commands/hook.rs`) must carry a doc-comment with a URL to the current published schema. Re-fetch the schema when adding or modifying the adapter — do not work from memory or a stale sample.
+- **Tests must parse serialized JSON and assert typed fields.** Use `serde_json::Value` + `assert_eq!` on named fields under the full path, not `output.contains("…")`. Substring checks pass whether or not required fields exist, so they cannot catch schema-omission bugs and create a false sense of coverage.
+- **Capture a fixture from the consumer's docs** and diff serialized output against it. Unit tests prove *our* struct serializes the way *we* expect; a fixture test proves it matches what the *consumer* expects. This is what catches schema drift between releases of the external tool.
+- **Any new format variant in a shared enum arm** (e.g. `HookFormat::Claude | HookFormat::Copilot => …`) must be justified in the PR description with a link to the new consumer's schema, confirming it genuinely accepts the shared struct. Extra fields are usually ignored, but missing required fields fail silently.
 
 ## Platform Support
 
