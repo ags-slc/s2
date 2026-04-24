@@ -29,6 +29,8 @@ struct ClaudeOutput {
 
 #[derive(serde::Serialize)]
 struct ClaudeHookSpecific {
+    #[serde(rename = "hookEventName")]
+    hook_event_name: &'static str,
     #[serde(rename = "updatedInput")]
     updated_input: CommandUpdate,
 }
@@ -51,6 +53,8 @@ struct ClaudeBlockOutput {
 
 #[derive(serde::Serialize)]
 struct ClaudeBlockDecision {
+    #[serde(rename = "hookEventName")]
+    hook_event_name: &'static str,
     decision: String,
     reason: String,
 }
@@ -123,6 +127,7 @@ fn emit_rewrite(format: &HookFormat, command: String) {
     let json = match format {
         HookFormat::Claude | HookFormat::Copilot => serde_json::to_string(&ClaudeOutput {
             hook_specific_output: ClaudeHookSpecific {
+                hook_event_name: "PreToolUse",
                 updated_input: CommandUpdate { command },
             },
         })
@@ -141,6 +146,7 @@ fn emit_block(format: &HookFormat, reason: String) {
     let json = match format {
         HookFormat::Claude | HookFormat::Copilot => serde_json::to_string(&ClaudeBlockOutput {
             hook_specific_output: ClaudeBlockDecision {
+                hook_event_name: "PreToolUse",
                 decision: "block".to_string(),
                 reason,
             },
@@ -846,12 +852,30 @@ mod tests {
     fn test_emit_block_claude_format() {
         let output = serde_json::to_string(&ClaudeBlockOutput {
             hook_specific_output: ClaudeBlockDecision {
+                hook_event_name: "PreToolUse",
                 decision: "block".to_string(),
                 reason: "test reason".to_string(),
             },
         })
         .unwrap();
+        assert!(output.contains("\"hookEventName\":\"PreToolUse\""));
         assert!(output.contains("\"decision\":\"block\""));
         assert!(output.contains("\"reason\":\"test reason\""));
+    }
+
+    #[test]
+    fn test_emit_rewrite_claude_format() {
+        let output = serde_json::to_string(&ClaudeOutput {
+            hook_specific_output: ClaudeHookSpecific {
+                hook_event_name: "PreToolUse",
+                updated_input: CommandUpdate {
+                    command: "s2 exec -f ~/.secrets -- aws s3 ls".to_string(),
+                },
+            },
+        })
+        .unwrap();
+        assert!(output.contains("\"hookEventName\":\"PreToolUse\""));
+        assert!(output.contains("\"updatedInput\""));
+        assert!(output.contains("s2 exec -f ~/.secrets -- aws s3 ls"));
     }
 }
