@@ -4,6 +4,10 @@ use crate::cli::HookFormat;
 use crate::config::{expand_tilde, Config, GuardConfig};
 use crate::error::S2Error;
 
+/// Claude Code's PreToolUse hook schema requires this value inside
+/// `hookSpecificOutput.hookEventName`. s2 only targets PreToolUse today.
+const CLAUDE_HOOK_EVENT: &str = "PreToolUse";
+
 // --- Input (shared across formats) ---
 
 #[derive(serde::Deserialize)]
@@ -127,7 +131,7 @@ fn emit_rewrite(format: &HookFormat, command: String) {
     let json = match format {
         HookFormat::Claude | HookFormat::Copilot => serde_json::to_string(&ClaudeOutput {
             hook_specific_output: ClaudeHookSpecific {
-                hook_event_name: "PreToolUse",
+                hook_event_name: CLAUDE_HOOK_EVENT,
                 updated_input: CommandUpdate { command },
             },
         })
@@ -146,7 +150,7 @@ fn emit_block(format: &HookFormat, reason: String) {
     let json = match format {
         HookFormat::Claude | HookFormat::Copilot => serde_json::to_string(&ClaudeBlockOutput {
             hook_specific_output: ClaudeBlockDecision {
-                hook_event_name: "PreToolUse",
+                hook_event_name: CLAUDE_HOOK_EVENT,
                 decision: "block".to_string(),
                 reason,
             },
@@ -852,30 +856,34 @@ mod tests {
     fn test_emit_block_claude_format() {
         let output = serde_json::to_string(&ClaudeBlockOutput {
             hook_specific_output: ClaudeBlockDecision {
-                hook_event_name: "PreToolUse",
+                hook_event_name: CLAUDE_HOOK_EVENT,
                 decision: "block".to_string(),
                 reason: "test reason".to_string(),
             },
         })
         .unwrap();
-        assert!(output.contains("\"hookEventName\":\"PreToolUse\""));
-        assert!(output.contains("\"decision\":\"block\""));
-        assert!(output.contains("\"reason\":\"test reason\""));
+        let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+        let hso = &parsed["hookSpecificOutput"];
+        assert_eq!(hso["hookEventName"], "PreToolUse");
+        assert_eq!(hso["decision"], "block");
+        assert_eq!(hso["reason"], "test reason");
     }
 
     #[test]
     fn test_emit_rewrite_claude_format() {
+        let command = "s2 exec -f ~/.secrets -- aws s3 ls";
         let output = serde_json::to_string(&ClaudeOutput {
             hook_specific_output: ClaudeHookSpecific {
-                hook_event_name: "PreToolUse",
+                hook_event_name: CLAUDE_HOOK_EVENT,
                 updated_input: CommandUpdate {
-                    command: "s2 exec -f ~/.secrets -- aws s3 ls".to_string(),
+                    command: command.to_string(),
                 },
             },
         })
         .unwrap();
-        assert!(output.contains("\"hookEventName\":\"PreToolUse\""));
-        assert!(output.contains("\"updatedInput\""));
-        assert!(output.contains("s2 exec -f ~/.secrets -- aws s3 ls"));
+        let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+        let hso = &parsed["hookSpecificOutput"];
+        assert_eq!(hso["hookEventName"], "PreToolUse");
+        assert_eq!(hso["updatedInput"]["command"], command);
     }
 }
