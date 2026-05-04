@@ -164,7 +164,7 @@ pub enum Command {
         #[arg(long, value_name = "HASH", conflicts_with_all = ["allow", "learn", "list_rules"])]
         allow_with_context: Vec<String>,
 
-        /// Allowlist file (default: .s2allowlist in cwd, then S2_ALLOWLIST, then [scan].allowlist)
+        /// Allowlist file (precedence: this flag > S2_ALLOWLIST env > [scan].allowlist > .s2allowlist)
         #[arg(long, value_name = "FILE")]
         allowlist: Option<PathBuf>,
 
