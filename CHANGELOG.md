@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `s2 scan --allowlist <file>` to read/write the allowlist at a chosen path (default remains `.s2allowlist` in the cwd)
+- Optional `S2_ALLOWLIST` environment variable and `[scan] allowlist` config key (precedence: `--allowlist` > env > config > `.s2allowlist`)
+
 ## [1.2.0] - 2026-04-08
 
 ### Added

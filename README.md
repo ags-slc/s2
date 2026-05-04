@@ -127,6 +127,8 @@ additional directories, add them in `~/.config/s2/config.toml`:
 ```toml
 [scan]
 skip_dirs = ["custom_vendor", "third_party"]
+# Optional default allowlist path (overridden by --allowlist and S2_ALLOWLIST)
+# allowlist = "~/.config/s2/default.s2allowlist"
 ```
 
 ### List Rules
@@ -181,7 +183,12 @@ s2 scan --staged
 #   No secrets found (1 files scanned, 1 allowed)
 ```
 
-Hashes are stored in `.s2allowlist` in the current directory. Commit it to share with your team, or gitignore it for personal use. Prefix matching is supported (minimum 8 characters).
+Hashes are stored in an allowlist file (default: **`.s2allowlist`** in the current directory). Use **`--allowlist /path/to/file`**, the **`S2_ALLOWLIST`** environment variable, or **`[scan] allowlist`** in config (precedence: flag, then env, then config, then `.s2allowlist`). Parent directories are created when appending new entries. Commit the allowlist to share with your team, or gitignore it for personal use. Prefix matching is supported (minimum 8 characters).
+
+```bash
+# Use a shared or out-of-repo allowlist path
+s2 scan --staged --allowlist ~/zonos/atlas/secrets/s2-allowlists/dashboard/.s2allowlist
+```
 
 To add context comments alongside each hash (file, line, rule, and description), use `--allow-with-context`:
 

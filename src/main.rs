@@ -106,6 +106,7 @@ fn main() {
             learn,
             allow,
             allow_with_context,
+            allowlist,
             list_rules,
         } => commands::scan::run(
             &config,
@@ -117,6 +118,7 @@ fn main() {
             learn,
             allow,
             allow_with_context,
+            allowlist,
             list_rules,
         ),
 
