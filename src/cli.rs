@@ -155,14 +155,18 @@ pub enum Command {
         #[arg(long, value_name = "FILE")]
         learn: Option<PathBuf>,
 
-        /// Add finding hashes to .s2allowlist (skips them in future scans)
+        /// Add finding hashes to the allowlist file (see --allowlist / .s2allowlist)
         #[arg(long, value_name = "HASH")]
         allow: Vec<String>,
 
-        /// Add finding hashes to .s2allowlist with source context comments
+        /// Add finding hashes to the allowlist with source context comments
         /// (runs a scan first to look up file, line, rule, and description)
         #[arg(long, value_name = "HASH", conflicts_with_all = ["allow", "learn", "list_rules"])]
         allow_with_context: Vec<String>,
+
+        /// Allowlist file (precedence: this flag > S2_ALLOWLIST env > [scan].allowlist > .s2allowlist)
+        #[arg(long, value_name = "FILE")]
+        allowlist: Option<PathBuf>,
 
         /// List all built-in and custom scan rules, then exit
         #[arg(long)]

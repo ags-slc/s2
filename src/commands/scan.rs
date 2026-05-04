@@ -283,8 +283,26 @@ fn compute_finding_hash(key: Option<&str>, raw_value: &str) -> String {
 
 // --- Allowlist ---
 
-fn load_allowlist() -> HashSet<String> {
-    let path = Path::new(".s2allowlist");
+fn resolve_allowlist_path(cli: Option<PathBuf>, config: &Config) -> PathBuf {
+    if let Some(p) = cli {
+        return p;
+    }
+    if let Ok(s) = std::env::var("S2_ALLOWLIST") {
+        let t = s.trim();
+        if !t.is_empty() {
+            return crate::config::expand_tilde(t);
+        }
+    }
+    if let Some(ref c) = config.scan.allowlist {
+        let t = c.trim();
+        if !t.is_empty() {
+            return crate::config::expand_tilde(t);
+        }
+    }
+    PathBuf::from(".s2allowlist")
+}
+
+fn load_allowlist(path: &Path) -> HashSet<String> {
     let Ok(content) = std::fs::read_to_string(path) else {
         return HashSet::new();
     };
@@ -320,8 +338,21 @@ fn validate_hashes(hashes: &[String]) -> Result<(), S2Error> {
     Ok(())
 }
 
-fn open_allowlist_append() -> Result<std::fs::File, S2Error> {
-    let path = Path::new(".s2allowlist");
+fn open_allowlist_append(path: &Path) -> Result<std::fs::File, S2Error> {
+    if let Some(parent) = path.parent() {
+        // `Path::parent` returns `Some("")` for bare filenames like `.s2allowlist`;
+        // skip the create_dir_all call in that case to avoid an EINVAL on empty paths.
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                S2Error::Config(format!(
+                    "failed to create allowlist parent {}: {}",
+                    parent.display(),
+                    e
+                ))
+            })?;
+        }
+    }
+
     let needs_leading_newline = path.exists()
         && std::fs::read(path)
             .map(|bytes| !bytes.is_empty() && !bytes.ends_with(b"\n"))
@@ -331,26 +362,37 @@ fn open_allowlist_append() -> Result<std::fs::File, S2Error> {
         .create(true)
         .append(true)
         .open(path)
-        .map_err(|e| S2Error::Config(format!("failed to open .s2allowlist: {}", e)))?;
+        .map_err(|e| {
+            S2Error::Config(format!(
+                "failed to open allowlist {}: {}",
+                path.display(),
+                e
+            ))
+        })?;
 
     if needs_leading_newline {
-        writeln!(file)
-            .map_err(|e| S2Error::Config(format!("failed to write .s2allowlist: {}", e)))?;
+        writeln!(file).map_err(|e| {
+            S2Error::Config(format!(
+                "failed to write allowlist {}: {}",
+                path.display(),
+                e
+            ))
+        })?;
     }
 
     Ok(file)
 }
 
-fn add_to_allowlist(hashes: &[String]) -> Result<(), S2Error> {
+fn add_to_allowlist(hashes: &[String], allowlist_path: &Path) -> Result<(), S2Error> {
     validate_hashes(hashes)?;
 
-    let existing = load_allowlist();
+    let existing = load_allowlist(allowlist_path);
 
     let added: Vec<&str> = hashes
         .iter()
         .filter(|h| {
             if is_allowed(h, &existing) {
-                eprintln!("Already in .s2allowlist: {}", h);
+                eprintln!("Already in allowlist ({}): {}", allowlist_path.display(), h);
                 false
             } else {
                 true
@@ -363,29 +405,42 @@ fn add_to_allowlist(hashes: &[String]) -> Result<(), S2Error> {
         return Ok(());
     }
 
-    let mut file = open_allowlist_append()?;
+    let mut file = open_allowlist_append(allowlist_path)?;
 
     for h in &added {
-        writeln!(file, "{}", h)
-            .map_err(|e| S2Error::Config(format!("failed to write .s2allowlist: {}", e)))?;
+        writeln!(file, "{}", h).map_err(|e| {
+            S2Error::Config(format!(
+                "failed to write allowlist {}: {}",
+                allowlist_path.display(),
+                e
+            ))
+        })?;
     }
 
-    eprintln!("Added {} hash(es) to .s2allowlist", added.len());
+    eprintln!(
+        "Added {} hash(es) to {}",
+        added.len(),
+        allowlist_path.display()
+    );
     Ok(())
 }
 
-fn add_to_allowlist_with_context(hashes: &[String], findings: &[Finding]) -> Result<(), S2Error> {
+fn add_to_allowlist_with_context(
+    hashes: &[String],
+    findings: &[Finding],
+    allowlist_path: &Path,
+) -> Result<(), S2Error> {
     let normalized: Vec<String> = hashes.iter().map(|h| h.to_ascii_lowercase()).collect();
     validate_hashes(&normalized)?;
 
-    let existing = load_allowlist();
+    let existing = load_allowlist(allowlist_path);
 
     let mut seen: HashSet<String> = HashSet::new();
     let added: Vec<&str> = normalized
         .iter()
         .filter(|h| {
             if is_allowed(h, &existing) {
-                eprintln!("Already in .s2allowlist: {}", h);
+                eprintln!("Already in allowlist ({}): {}", allowlist_path.display(), h);
                 return false;
             }
             if is_allowed(h, &seen) {
@@ -402,7 +457,7 @@ fn add_to_allowlist_with_context(hashes: &[String], findings: &[Finding]) -> Res
         return Ok(());
     }
 
-    let mut file = open_allowlist_append()?;
+    let mut file = open_allowlist_append(allowlist_path)?;
 
     for h in &added {
         let matches: Vec<&Finding> = findings
@@ -426,16 +481,27 @@ fn add_to_allowlist_with_context(hashes: &[String], findings: &[Finding]) -> Res
                 ),
                 None => format!("# {}:{} — {} ({})", f.file, f.line, f.rule, f.description),
             };
-            writeln!(file, "{}", ctx)
-                .map_err(|e| S2Error::Config(format!("failed to write .s2allowlist: {}", e)))?;
+            writeln!(file, "{}", ctx).map_err(|e| {
+                S2Error::Config(format!(
+                    "failed to write allowlist {}: {}",
+                    allowlist_path.display(),
+                    e
+                ))
+            })?;
         }
-        writeln!(file, "{}", h)
-            .map_err(|e| S2Error::Config(format!("failed to write .s2allowlist: {}", e)))?;
+        writeln!(file, "{}", h).map_err(|e| {
+            S2Error::Config(format!(
+                "failed to write allowlist {}: {}",
+                allowlist_path.display(),
+                e
+            ))
+        })?;
     }
 
     eprintln!(
-        "Added {} hash(es) to .s2allowlist (with context)",
-        added.len()
+        "Added {} hash(es) to {} (with context)",
+        added.len(),
+        allowlist_path.display()
     );
     Ok(())
 }
@@ -949,6 +1015,7 @@ pub fn run(
     learn: Option<PathBuf>,
     allow: Vec<String>,
     allow_with_context: Vec<String>,
+    allowlist: Option<PathBuf>,
     list_rules: bool,
 ) -> Result<(), S2Error> {
     let rules = build_rules(config)?;
@@ -957,8 +1024,10 @@ pub fn run(
         return print_rules_summary(&rules, config);
     }
 
+    let allowlist_path = resolve_allowlist_path(allowlist, config);
+
     if !allow.is_empty() {
-        return add_to_allowlist(&allow);
+        return add_to_allowlist(&allow, &allowlist_path);
     }
 
     if let Some(ref learn_file) = learn {
@@ -986,11 +1055,11 @@ pub fn run(
     }
 
     // Apply allowlist
-    let allowlist = load_allowlist();
+    let allowlist_hashes = load_allowlist(&allowlist_path);
     let mut allowed_count = 0;
-    if !allowlist.is_empty() {
+    if !allowlist_hashes.is_empty() {
         for finding in &mut all_findings {
-            if is_allowed(&finding.hash, &allowlist) {
+            if is_allowed(&finding.hash, &allowlist_hashes) {
                 finding.allowed = true;
                 allowed_count += 1;
             }
@@ -999,7 +1068,7 @@ pub fn run(
 
     if !allow_with_context.is_empty() {
         all_findings.retain(|f| !f.allowed);
-        return add_to_allowlist_with_context(&allow_with_context, &all_findings);
+        return add_to_allowlist_with_context(&allow_with_context, &all_findings, &allowlist_path);
     }
 
     if json {
@@ -1072,8 +1141,8 @@ mod tests {
     use super::*;
     use std::sync::Mutex;
 
-    /// Mutex to serialize tests that change the process-wide current directory
-    static CWD_LOCK: Mutex<()> = Mutex::new(());
+    /// Mutex to serialize tests that mutate process-wide env vars (e.g. `S2_ALLOWLIST`).
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     fn default_config() -> Config {
         Config::default()
@@ -1519,10 +1588,8 @@ mod tests {
 
     #[test]
     fn test_allow_with_context_writes_comment_and_hash() {
-        let _lock = CWD_LOCK.lock().unwrap();
         let dir = tempfile::tempdir().unwrap();
         let allowlist_path = dir.path().join(".s2allowlist");
-        let _guard = SetCwd::new(dir.path());
 
         let findings = vec![Finding {
             file: "src/config.rs".to_string(),
@@ -1536,7 +1603,12 @@ mod tests {
             allowed: false,
         }];
 
-        add_to_allowlist_with_context(&["a1b2c3d4e5f6a7b8".to_string()], &findings).unwrap();
+        add_to_allowlist_with_context(
+            &["a1b2c3d4e5f6a7b8".to_string()],
+            &findings,
+            &allowlist_path,
+        )
+        .unwrap();
 
         let content = std::fs::read_to_string(&allowlist_path).unwrap();
         let lines: Vec<&str> = content.lines().collect();
@@ -1550,10 +1622,8 @@ mod tests {
 
     #[test]
     fn test_allow_with_context_no_key_omits_key_from_comment() {
-        let _lock = CWD_LOCK.lock().unwrap();
         let dir = tempfile::tempdir().unwrap();
         let allowlist_path = dir.path().join(".s2allowlist");
-        let _guard = SetCwd::new(dir.path());
 
         let findings = vec![Finding {
             file: "deploy.sh".to_string(),
@@ -1567,7 +1637,12 @@ mod tests {
             allowed: false,
         }];
 
-        add_to_allowlist_with_context(&["b2c3d4e5f6a7b8c9".to_string()], &findings).unwrap();
+        add_to_allowlist_with_context(
+            &["b2c3d4e5f6a7b8c9".to_string()],
+            &findings,
+            &allowlist_path,
+        )
+        .unwrap();
 
         let content = std::fs::read_to_string(&allowlist_path).unwrap();
         let lines: Vec<&str> = content.lines().collect();
@@ -1578,14 +1653,17 @@ mod tests {
 
     #[test]
     fn test_allow_with_context_no_matching_finding_writes_bare_hash() {
-        let _lock = CWD_LOCK.lock().unwrap();
         let dir = tempfile::tempdir().unwrap();
         let allowlist_path = dir.path().join(".s2allowlist");
-        let _guard = SetCwd::new(dir.path());
 
         let findings: Vec<Finding> = vec![];
 
-        add_to_allowlist_with_context(&["c3d4e5f6a7b8c9d0".to_string()], &findings).unwrap();
+        add_to_allowlist_with_context(
+            &["c3d4e5f6a7b8c9d0".to_string()],
+            &findings,
+            &allowlist_path,
+        )
+        .unwrap();
 
         let content = std::fs::read_to_string(&allowlist_path).unwrap();
         let lines: Vec<&str> = content.lines().collect();
@@ -1595,11 +1673,9 @@ mod tests {
 
     #[test]
     fn test_allow_with_context_skips_duplicates() {
-        let _lock = CWD_LOCK.lock().unwrap();
         let dir = tempfile::tempdir().unwrap();
         let allowlist_path = dir.path().join(".s2allowlist");
         std::fs::write(&allowlist_path, "d4e5f6a7b8c9d0e1\n").unwrap();
-        let _guard = SetCwd::new(dir.path());
 
         let findings = vec![Finding {
             file: "test.rs".to_string(),
@@ -1613,7 +1689,12 @@ mod tests {
             allowed: false,
         }];
 
-        add_to_allowlist_with_context(&["d4e5f6a7b8c9d0e1".to_string()], &findings).unwrap();
+        add_to_allowlist_with_context(
+            &["d4e5f6a7b8c9d0e1".to_string()],
+            &findings,
+            &allowlist_path,
+        )
+        .unwrap();
 
         let content = std::fs::read_to_string(&allowlist_path).unwrap();
         // Should still be just the original line — no duplicate added
@@ -1622,10 +1703,8 @@ mod tests {
 
     #[test]
     fn test_allow_with_context_normalizes_uppercase_hash() {
-        let _lock = CWD_LOCK.lock().unwrap();
         let dir = tempfile::tempdir().unwrap();
         let allowlist_path = dir.path().join(".s2allowlist");
-        let _guard = SetCwd::new(dir.path());
 
         let findings = vec![Finding {
             file: "app.rs".to_string(),
@@ -1640,7 +1719,12 @@ mod tests {
         }];
 
         // Pass uppercase — should normalize and still match finding
-        add_to_allowlist_with_context(&["AABB1122CCDD3344".to_string()], &findings).unwrap();
+        add_to_allowlist_with_context(
+            &["AABB1122CCDD3344".to_string()],
+            &findings,
+            &allowlist_path,
+        )
+        .unwrap();
 
         let content = std::fs::read_to_string(&allowlist_path).unwrap();
         let lines: Vec<&str> = content.lines().collect();
@@ -1651,16 +1735,19 @@ mod tests {
 
     #[test]
     fn test_allow_with_context_handles_missing_trailing_newline() {
-        let _lock = CWD_LOCK.lock().unwrap();
         let dir = tempfile::tempdir().unwrap();
         let allowlist_path = dir.path().join(".s2allowlist");
         // Write without trailing newline
         std::fs::write(&allowlist_path, "aaaa1111bbbb2222").unwrap();
-        let _guard = SetCwd::new(dir.path());
 
         let findings: Vec<Finding> = vec![];
 
-        add_to_allowlist_with_context(&["cccc3333dddd4444".to_string()], &findings).unwrap();
+        add_to_allowlist_with_context(
+            &["cccc3333dddd4444".to_string()],
+            &findings,
+            &allowlist_path,
+        )
+        .unwrap();
 
         let content = std::fs::read_to_string(&allowlist_path).unwrap();
         let lines: Vec<&str> = content.lines().collect();
@@ -1669,22 +1756,100 @@ mod tests {
         assert_eq!(lines[1], "cccc3333dddd4444");
     }
 
-    /// RAII guard to change cwd for a test and restore it after
-    struct SetCwd {
-        prev: PathBuf,
+    // --- resolve_allowlist_path precedence ---
+
+    fn config_with_allowlist(value: Option<&str>) -> Config {
+        let mut cfg = Config::default();
+        cfg.scan.allowlist = value.map(|s| s.to_string());
+        cfg
     }
 
-    impl SetCwd {
-        fn new(dir: &Path) -> Self {
-            let prev = std::env::current_dir().unwrap();
-            std::env::set_current_dir(dir).unwrap();
-            SetCwd { prev }
-        }
+    #[test]
+    fn test_resolve_allowlist_path_cli_arg_wins() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        std::env::set_var("S2_ALLOWLIST", "/from/env");
+        let cfg = config_with_allowlist(Some("/from/config"));
+
+        let resolved = resolve_allowlist_path(Some(PathBuf::from("/from/cli")), &cfg);
+        assert_eq!(resolved, PathBuf::from("/from/cli"));
+
+        std::env::remove_var("S2_ALLOWLIST");
     }
 
-    impl Drop for SetCwd {
-        fn drop(&mut self) {
-            let _ = std::env::set_current_dir(&self.prev);
-        }
+    #[test]
+    fn test_resolve_allowlist_path_env_var_wins_over_config() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        std::env::set_var("S2_ALLOWLIST", "/from/env");
+        let cfg = config_with_allowlist(Some("/from/config"));
+
+        let resolved = resolve_allowlist_path(None, &cfg);
+        assert_eq!(resolved, PathBuf::from("/from/env"));
+
+        std::env::remove_var("S2_ALLOWLIST");
+    }
+
+    #[test]
+    fn test_resolve_allowlist_path_config_when_no_cli_or_env() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        std::env::remove_var("S2_ALLOWLIST");
+        let cfg = config_with_allowlist(Some("/from/config"));
+
+        let resolved = resolve_allowlist_path(None, &cfg);
+        assert_eq!(resolved, PathBuf::from("/from/config"));
+    }
+
+    #[test]
+    fn test_resolve_allowlist_path_default_when_nothing_set() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        std::env::remove_var("S2_ALLOWLIST");
+        let cfg = config_with_allowlist(None);
+
+        let resolved = resolve_allowlist_path(None, &cfg);
+        assert_eq!(resolved, PathBuf::from(".s2allowlist"));
+    }
+
+    #[test]
+    fn test_resolve_allowlist_path_empty_env_falls_through_to_config() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        std::env::set_var("S2_ALLOWLIST", "   ");
+        let cfg = config_with_allowlist(Some("/from/config"));
+
+        let resolved = resolve_allowlist_path(None, &cfg);
+        assert_eq!(resolved, PathBuf::from("/from/config"));
+
+        std::env::remove_var("S2_ALLOWLIST");
+    }
+
+    #[test]
+    fn test_resolve_allowlist_path_env_tilde_expanded() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        std::env::set_var("S2_ALLOWLIST", "~/secrets/.s2allowlist");
+        let cfg = config_with_allowlist(None);
+
+        let resolved = resolve_allowlist_path(None, &cfg);
+        let home = std::env::var("HOME").expect("HOME set in test env");
+        assert_eq!(
+            resolved,
+            PathBuf::from(home).join("secrets").join(".s2allowlist")
+        );
+
+        std::env::remove_var("S2_ALLOWLIST");
+    }
+
+    #[test]
+    fn test_resolve_allowlist_path_config_tilde_expanded() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        std::env::remove_var("S2_ALLOWLIST");
+        let cfg = config_with_allowlist(Some("~/.config/s2/default.s2allowlist"));
+
+        let resolved = resolve_allowlist_path(None, &cfg);
+        let home = std::env::var("HOME").expect("HOME set in test env");
+        assert_eq!(
+            resolved,
+            PathBuf::from(home)
+                .join(".config")
+                .join("s2")
+                .join("default.s2allowlist")
+        );
     }
 }

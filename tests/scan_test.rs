@@ -44,6 +44,30 @@ fn test_scan_allow_creates_allowlist() {
 }
 
 #[test]
+fn test_scan_allow_respects_allowlist_flag_path() {
+    let dir = tempfile::tempdir().unwrap();
+    let custom = dir.path().join("nested").join("my-allow.txt");
+
+    Command::cargo_bin("s2")
+        .unwrap()
+        .current_dir(dir.path())
+        .args([
+            "scan",
+            "--allowlist",
+            custom.to_str().unwrap(),
+            "--allow",
+            "a1b2c3d4e5f6a7b8",
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("Added"));
+
+    let content = std::fs::read_to_string(&custom).unwrap();
+    assert!(content.contains("a1b2c3d4e5f6a7b8"));
+    assert!(custom.exists());
+}
+
+#[test]
 fn test_scan_allow_rejects_short_hash() {
     let dir = tempfile::tempdir().unwrap();
 

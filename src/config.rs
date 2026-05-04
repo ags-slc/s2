@@ -211,6 +211,9 @@ pub struct ScanConfig {
     /// Additional directory names to skip during scanning (merged with built-in defaults).
     #[serde(default)]
     pub skip_dirs: Vec<String>,
+    /// Default allowlist path when not set via `--allowlist` or `S2_ALLOWLIST` (tilde-expanded).
+    #[serde(default)]
+    pub allowlist: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
