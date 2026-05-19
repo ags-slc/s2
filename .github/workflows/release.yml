@@ -7,6 +7,8 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 jobs:
   build:
@@ -43,6 +45,11 @@ jobs:
           cd target/${{ matrix.target }}/release
           tar czf ../../../s2-${{ matrix.target }}.tar.gz s2
           cd ../../..
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: s2-${{ matrix.target }}.tar.gz
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
