@@ -31,6 +31,14 @@ cargo install --path .      # from source
 
 **Windows:** use [WSL](https://learn.microsoft.com/en-us/windows/wsl/install) and follow the Linux instructions.
 
+### Verifying a Release
+
+Release tarballs are signed with [GitHub Artifact Attestations](https://docs.github.com/en/actions/concepts/security/artifact-attestations), proving they were built by this repo's release workflow from a specific commit. To verify:
+
+```bash
+gh attestation verify s2-aarch64-apple-darwin.tar.gz --repo ags-slc/s2
+```
+
 ### Shell Completions
 
 ```bash
