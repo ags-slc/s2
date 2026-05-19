@@ -67,7 +67,6 @@ fn test_exec_clean_env() {
 }
 
 #[test]
-#[test]
 fn test_exec_dry_run_lists_keys_without_executing() {
     setup_fixture("basic.env");
     let path = fixture_path("basic.env");
@@ -86,7 +85,10 @@ fn test_exec_dry_run_lists_keys_without_executing() {
         .success();
 
     let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
-    assert!(stdout.contains("DRY RUN"), "missing dry-run banner: {stdout}");
+    assert!(
+        stdout.contains("DRY RUN"),
+        "missing dry-run banner: {stdout}"
+    );
     assert!(stdout.contains("FOO"), "missing key FOO: {stdout}");
     assert!(stdout.contains("BAZ"), "missing key BAZ: {stdout}");
     assert!(stdout.contains("/nonexistent/command-that-would-fail"));
