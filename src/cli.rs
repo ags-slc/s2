@@ -34,6 +34,10 @@ pub enum Command {
         #[arg(long = "clean-env")]
         clean_env: bool,
 
+        /// Print the keys that would be injected and the command, then exit (no values, no exec)
+        #[arg(long = "dry-run")]
+        dry_run: bool,
+
         /// Command and arguments to execute
         #[arg(last = true, required = true)]
         cmd: Vec<String>,

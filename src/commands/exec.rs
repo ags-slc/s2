@@ -18,6 +18,7 @@ pub fn run(
     keys: Vec<String>,
     profile: Option<String>,
     clean_env: bool,
+    dry_run: bool,
     cmd: Vec<String>,
 ) -> Result<(), S2Error> {
     let files = config.resolve_files(&files, &profile)?;
@@ -27,6 +28,42 @@ pub fn run(
     store.load_files(&files, config)?;
 
     let env_map = store.to_env_map(&keys);
+
+    if dry_run {
+        let mut key_names: Vec<&str> = env_map.keys().map(|s| s.as_str()).collect();
+        key_names.sort_unstable();
+
+        audit::log_access(
+            config,
+            "exec-dry-run",
+            &format!("cmd={} keys=[{}]", cmd[0], key_names.join(",")),
+        );
+
+        println!("DRY RUN — no command executed");
+        println!();
+        println!("Files:");
+        for f in &files {
+            println!("  {}", f.display());
+        }
+        println!();
+        println!("Keys ({}):", key_names.len());
+        for k in &key_names {
+            println!("  {}", k);
+        }
+        println!();
+        println!(
+            "Environment: {}",
+            if clean_env {
+                "clean (keeps PATH HOME TERM USER SHELL LANG)"
+            } else {
+                "inherited from parent shell"
+            }
+        );
+        println!("Command: {}", cmd.join(" "));
+
+        store.flush_cache()?;
+        return Ok(());
+    }
 
     // Audit log
     let key_names: Vec<&str> = env_map.keys().map(|s| s.as_str()).collect();

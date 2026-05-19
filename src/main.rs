@@ -54,11 +54,12 @@ fn main() {
             keys,
             profile,
             clean_env,
+            dry_run,
             cmd,
         } => {
             let (registry, cache) = init_providers(&config, &profile);
             commands::exec::run(
-                &config, registry, cache, files, keys, profile, clean_env, cmd,
+                &config, registry, cache, files, keys, profile, clean_env, dry_run, cmd,
             )
         }
 

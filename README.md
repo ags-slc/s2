@@ -74,6 +74,9 @@ s2 exec -f ~/.secrets -- aws s3 ls
 s2 exec -f ~/.secrets -- terraform apply
 s2 exec -f ~/.secrets -- kubectl get pods
 
+# Preview which keys would be injected without running the command (names only, no values)
+s2 exec -f ~/.secrets --dry-run -- terraform apply
+
 # List available keys (never shows values)
 s2 list -f ~/.secrets
 
@@ -91,7 +94,7 @@ kubectl logs pod | s2 redact -f ~/.secrets
 
 | Command | Description |
 |---------|-------------|
-| `s2 exec` | Load secrets and exec a command with them in the environment |
+| `s2 exec` | Load secrets and exec a command with them in the environment. `--dry-run` previews injected key names without executing. |
 | `s2 list` | List secret key names and source files (never values) |
 | `s2 check` | Exit 0 if all specified keys exist, exit 1 with missing names |
 | `s2 init` | Create a new secret file (encrypted by default, `--no-encrypt` for plaintext) |
