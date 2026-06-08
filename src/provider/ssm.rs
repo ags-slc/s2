@@ -156,4 +156,14 @@ mod tests {
             "/prod/apps/classify-expo/secrets/"
         );
     }
+
+    #[test]
+    fn parameters_by_path_prefix_empty_path_yields_root() {
+        assert_eq!(parameters_by_path_prefix(""), "/");
+    }
+
+    #[test]
+    fn parameters_by_path_prefix_root_path_stays_root() {
+        assert_eq!(parameters_by_path_prefix("/"), "/");
+    }
 }
