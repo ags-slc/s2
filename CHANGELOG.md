@@ -10,6 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - SSM prefix expansion (`*=ssm:///prefix`) now normalizes the path with a trailing slash before calling `GetParametersByPath`. IAM policies scoped to `.../secrets/*` authorize listing children under `.../secrets/` but deny the bare path node `.../secrets`, so tightly-scoped policies previously failed with `AccessDenied`. (#22)
 
+## [1.8.0] - 2026-05-19
+
+### Added
+- `s2 exec --dry-run` to preview the environment-variable keys that would be injected, without resolving secret values or executing the command
+
+### Security
+- Release tarballs are now signed with [GitHub Artifact Attestations](https://docs.github.com/en/actions/security-guides/using-artifact-attestations-to-establish-provenance-for-builds), establishing build provenance. Verify with `gh attestation verify <tarball> --repo ags-slc/s2`
+
 ## [1.7.0] - 2026-05-04
 
 ### Added
