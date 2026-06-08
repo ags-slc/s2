@@ -336,6 +336,8 @@ The `*=ssm:///prefix/` syntax auto-discovers all parameters under the path and i
 
 By default, nested paths are included (recursive). Use `#shallow` to fetch only immediate children: `*=ssm:///prefix/#shallow`.
 
+> **IAM note:** s2 always sends the prefix to `GetParametersByPath` with a trailing slash (`.../secrets/`). An IAM policy scoped to `arn:aws:ssm:...:parameter/prod/apps/myapp/secrets/*` is sufficient; you do not need to also grant the bare `.../secrets` node.
+
 **Converting an existing `.env` into a reference file:**
 
 ```bash

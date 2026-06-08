@@ -169,8 +169,7 @@ pub fn resolve_entries(
 
             if entry.key == "*" {
                 // Prefix expansion: resolve all params under this path
-                let prefix = uri.path.trim_end_matches('/');
-                let prefix_with_slash = format!("{prefix}/");
+                let prefix_with_slash = normalize_path_prefix(&uri.path);
                 let recursive = uri.fragment.as_deref() != Some("shallow");
 
                 let params = provider.resolve_prefix(&uri, recursive)?;
@@ -272,6 +271,23 @@ fn resolve_single(
     }
 }
 
+/// Normalize a hierarchy prefix to its canonical trailing-slash form.
+///
+/// Shared by the SSM `GetParametersByPath` call and by the prefix-stripping in
+/// [`param_to_env_key`], so the two can never disagree. IAM policies scoped to
+/// `.../secrets/*` authorize listing children under `.../secrets/` but deny the
+/// bare path node `.../secrets`; the trailing slash matches the `.../secrets/*`
+/// resource pattern. AWS accepts either form for the API itself. An empty or
+/// root path normalizes to `/`.
+fn normalize_path_prefix(path: &str) -> String {
+    let trimmed = path.trim_end_matches('/');
+    if trimmed.is_empty() {
+        "/".to_string()
+    } else {
+        format!("{trimmed}/")
+    }
+}
+
 /// Convert an SSM parameter name to an environment variable key.
 /// Strips the prefix, replaces `/`, `-`, `.` with `_`, uppercases.
 /// Example: "/prod/app/db-password" with prefix "/prod/app/" → "DB_PASSWORD"
@@ -325,6 +341,32 @@ mod tests {
         assert!(parse_uri("just-a-plain-value").is_none());
         assert!(parse_uri("key=value").is_none());
         assert!(parse_uri("").is_none());
+    }
+
+    #[test]
+    fn normalize_path_prefix_adds_trailing_slash() {
+        assert_eq!(
+            normalize_path_prefix("/prod/apps/classify-expo/secrets"),
+            "/prod/apps/classify-expo/secrets/"
+        );
+    }
+
+    #[test]
+    fn normalize_path_prefix_preserves_existing_trailing_slash() {
+        assert_eq!(
+            normalize_path_prefix("/prod/apps/classify-expo/secrets/"),
+            "/prod/apps/classify-expo/secrets/"
+        );
+    }
+
+    #[test]
+    fn normalize_path_prefix_empty_path_yields_root() {
+        assert_eq!(normalize_path_prefix(""), "/");
+    }
+
+    #[test]
+    fn normalize_path_prefix_root_path_stays_root() {
+        assert_eq!(normalize_path_prefix("/"), "/");
     }
 
     #[test]
