@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.1] - 2026-06-09
+
 ### Fixed
 - SSM prefix expansion (`*=ssm:///prefix`) now normalizes the path with a trailing slash before calling `GetParametersByPath`. IAM policies scoped to `.../secrets/*` authorize listing children under `.../secrets/` but deny the bare path node `.../secrets`, so tightly-scoped policies previously failed with `AccessDenied`. (#22)
 
