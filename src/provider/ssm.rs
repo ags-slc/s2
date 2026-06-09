@@ -46,21 +46,6 @@ impl SsmProvider {
     }
 }
 
-/// Normalize a prefix for `GetParametersByPath`.
-///
-/// IAM policies scoped to `.../secrets/*` authorize listing children under
-/// `.../secrets/`, but deny the path node `.../secrets` (no trailing slash).
-/// AWS accepts either form for the API call; the trailing slash matches the
-/// `.../secrets/*` resource pattern.
-fn parameters_by_path_prefix(path: &str) -> String {
-    let trimmed = path.trim_end_matches('/');
-    if trimmed.is_empty() {
-        "/".to_string()
-    } else {
-        format!("{trimmed}/")
-    }
-}
-
 impl SecretProvider for SsmProvider {
     fn scheme(&self) -> &str {
         "ssm"
@@ -102,7 +87,7 @@ impl SecretProvider for SsmProvider {
             let mut results = Vec::new();
             let mut next_token: Option<String> = None;
 
-            let path = parameters_by_path_prefix(&uri.path);
+            let path = super::normalize_path_prefix(&uri.path);
 
             loop {
                 let mut req = client
@@ -134,36 +119,5 @@ impl SecretProvider for SsmProvider {
 
             Ok(results)
         })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::parameters_by_path_prefix;
-
-    #[test]
-    fn parameters_by_path_prefix_adds_trailing_slash() {
-        assert_eq!(
-            parameters_by_path_prefix("/prod/apps/classify-expo/secrets"),
-            "/prod/apps/classify-expo/secrets/"
-        );
-    }
-
-    #[test]
-    fn parameters_by_path_prefix_preserves_existing_trailing_slash() {
-        assert_eq!(
-            parameters_by_path_prefix("/prod/apps/classify-expo/secrets/"),
-            "/prod/apps/classify-expo/secrets/"
-        );
-    }
-
-    #[test]
-    fn parameters_by_path_prefix_empty_path_yields_root() {
-        assert_eq!(parameters_by_path_prefix(""), "/");
-    }
-
-    #[test]
-    fn parameters_by_path_prefix_root_path_stays_root() {
-        assert_eq!(parameters_by_path_prefix("/"), "/");
     }
 }
