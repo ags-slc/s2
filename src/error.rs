@@ -41,6 +41,9 @@ pub enum S2Error {
     #[error("provider error: {0}")]
     Provider(String),
 
+    #[error("provider access denied: {0}")]
+    ProviderAccessDenied(String),
+
     #[error(transparent)]
     Io(#[from] std::io::Error),
 }

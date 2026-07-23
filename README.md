@@ -104,9 +104,72 @@ kubectl logs pod | s2 redact -f ~/.secrets
 | `s2 encrypt` | Encrypt an existing plaintext file with age |
 | `s2 decrypt` | Decrypt an age-encrypted file |
 | `s2 edit` | Decrypt → $EDITOR → re-encrypt |
+| `s2 health` | Check whether `s2` operations will succeed. Walks a detection-gated chain and classifies the outcome. Human summary on stderr by default; `--json` emits a report per file (JSONL) on stdout for `jq`/branching. Non-destructive, no writes. See [Health checks](#health-checks). |
 | `s2 redact` | Pipe filter replacing secret values with `[REDACTED]` |
 | `s2 scan` | Scan files for secrets (regex patterns + entropy analysis) |
 | `s2 completions` | Generate shell completion scripts (bash, zsh, fish, powershell) |
+
+## Health checks
+
+`s2 health -f FILE [-f FILE ...]` verifies that a secret file is actually usable and
+reports *why* it is (or isn't) — not just that it is. Nothing is ever written.
+
+Like `s2 scan`, output is a human-readable summary on **stderr** by default; pass **`--json`**
+for one JSON object per file (JSONL) on **stdout**, so a machine consumer (e.g. a CI/deploy
+preflight) can pipe straight into `jq`. In both modes the exit code is `0` when every file
+is healthy, `1` otherwise.
+
+It walks a **detection-gated escalation** — each stage runs only if it applies and every
+prior stage passed:
+
+```
+existence → permissions → decryption (passphrase test for encrypted files; trivially ok for plaintext)
+                        → provider   (only if the content references ssm:/// URIs)
+```
+
+Each file's report:
+
+```json
+{"file":"/path/.secrets","status":"ok","reason":"healthy","stages":{"existence":"ok","permissions":"ok","decryption":"ok","provider":"skipped"}}
+```
+
+- `status` — `ok` iff every applicable stage passed, else `fail`.
+- `stages.*` — `ok` | `fail` | `skipped` (`skipped` = stage didn't apply, or a prior stage failed).
+- `reason` — a **stable machine code**; `detail` carries the human message on failure.
+
+| `reason` | Meaning | Typical remediation |
+|---|---|---|
+| `healthy` | all applicable stages passed | none |
+| `not_found` | file does not exist | config/deploy problem |
+| `bad_permissions` | file is not `0600` | fix permissions |
+| `unreadable` | I/O fault (perm-denied, broken symlink, non-UTF-8) | config/deploy problem |
+| `passphrase_missing` | keychain/file-store passphrase evicted or churned | re-import / re-key |
+| `decryption_failed` | wrong passphrase or corrupted ciphertext | restore from backup |
+| `parse_error` | decrypts but content isn't valid `KEY=value` | fix the file |
+| `provider_unreachable` | provider creds/region/endpoint couldn't be reached | transient — do **not** re-key |
+| `access_denied` | provider reached but IAM denies the path | grant the policy |
+
+The exit code is `0` when every file is healthy, `1` otherwise — but **branch on the JSON,
+not the exit code**. A provider/AWS hiccup fails the process yet leaves
+`stages.decryption == "ok"`, which is what a self-heal should key off:
+
+```bash
+# Regenerate only on a passphrase/decryption problem, never a provider/AWS hiccup:
+s2 health --json -f .secrets | jq -e '.stages.decryption == "ok"' >/dev/null || regenerate
+```
+
+The provider stage is a reachability + authorization probe (one SSM `GetParametersByPath`
+per referenced prefix, `max_results=1`, `with_decryption=false`): it pulls no secret values
+and writes no cache.
+
+**Plaintext semantics.** A `--no-encrypt` file is a legitimate state: its content is
+trivially accessible, so the decryption stage is reported `ok` (not `skipped`) and the file
+is `healthy` if nothing else is wrong. `s2 health` does **not** enforce encryption, and a
+consumer branching on `stages.decryption == "ok"` treats plaintext as healthy.
+
+**Touch ID caveat.** With `biometric = true`, decrypting each encrypted file triggers a
+Touch ID prompt on macOS — so `s2 health` is **not** non-interactive there. On Linux/EKS
+biometric is ignored (fine for unattended preflights).
 
 ## Secret Scanning
 
@@ -198,7 +261,7 @@ Hashes are stored in an allowlist file (default: **`.s2allowlist`** in the curre
 
 ```bash
 # Use a shared or out-of-repo allowlist path
-s2 scan --staged --allowlist ~/zonos/atlas/secrets/s2-allowlists/dashboard/.s2allowlist
+s2 scan --staged --allowlist ~/secrets/s2-allowlists/myapp/.s2allowlist
 ```
 
 To add context comments alongside each hash (file, line, rule, and description), use `--allow-with-context`:
@@ -260,7 +323,7 @@ Require Touch ID on macOS before any secret is decrypted or injected:
 biometric = true
 ```
 
-When enabled, `s2 exec`, `s2 edit`, `s2 decrypt`, and `s2 set` trigger a Touch ID prompt. Commands that don't access secrets (`s2 scan`, `s2 hook`, `s2 list` on plaintext files) don't prompt.
+When enabled, `s2 exec`, `s2 edit`, `s2 decrypt`, `s2 set`, and `s2 health` trigger a Touch ID prompt. Commands that don't access secrets (`s2 scan`, `s2 hook`, `s2 list` on plaintext files) don't prompt.
 
 Existing keychain items auto-migrate to biometric protection on next access. On Linux or headless systems, the option is ignored.
 

@@ -53,6 +53,18 @@ pub trait SecretProvider: Send + Sync {
             self.display_name()
         )))
     }
+
+    /// Probe that this provider is reachable and the caller is authorized, without
+    /// resolving any real secret values (no plaintext pulled, no cache written).
+    ///
+    /// `hints` are the URIs (already filtered to this provider's scheme) referenced
+    /// by the files under `s2 health --provider`, so a scoped-IAM provider can probe
+    /// the exact paths it will read at exec time instead of a broad root that its
+    /// policy may deny. Default: healthy — `env` and other local providers need no
+    /// backend to reach.
+    fn health_check(&self, _hints: &[SecretUri]) -> Result<(), S2Error> {
+        Ok(())
+    }
 }
 
 /// Registry of all compiled-in providers.
@@ -271,6 +283,23 @@ fn resolve_single(
     }
 }
 
+/// Distinct hierarchy prefixes to probe for a set of provider URI hints.
+///
+/// Each hint path is normalized to the trailing-slash prefix form that
+/// `GetParametersByPath` and scoped IAM policies (`.../secrets/*`) authorize, then
+/// deduplicated (order-preserving). Empty input yields no prefixes — the caller
+/// decides the fallback (e.g. probe root).
+pub(crate) fn distinct_prefixes(hints: &[SecretUri]) -> Vec<String> {
+    let mut prefixes: Vec<String> = Vec::new();
+    for uri in hints {
+        let prefix = normalize_path_prefix(&uri.path);
+        if !prefixes.contains(&prefix) {
+            prefixes.push(prefix);
+        }
+    }
+    prefixes
+}
+
 /// Normalize a hierarchy prefix to its canonical trailing-slash form.
 ///
 /// Shared by the SSM `GetParametersByPath` call and by the prefix-stripping in
@@ -367,6 +396,30 @@ mod tests {
     #[test]
     fn normalize_path_prefix_root_path_stays_root() {
         assert_eq!(normalize_path_prefix("/"), "/");
+    }
+
+    #[test]
+    fn distinct_prefixes_dedups_normalized_paths() {
+        // Repeated references to the same prefix (typical: several keys resolving the
+        // same `*`-import path) collapse to one probe target; a distinct prefix stays
+        // separate. Normalization adds the trailing slash. Order is preserved.
+        let hints = vec![
+            parse_uri("ssm:///prod/apps/service-a/secrets").unwrap(),
+            parse_uri("ssm:///prod/apps/service-a/secrets").unwrap(),
+            parse_uri("ssm:///prod/apps/service-b/secrets").unwrap(),
+        ];
+        assert_eq!(
+            distinct_prefixes(&hints),
+            vec![
+                "/prod/apps/service-a/secrets/".to_string(),
+                "/prod/apps/service-b/secrets/".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn distinct_prefixes_empty_for_no_hints() {
+        assert!(distinct_prefixes(&[]).is_empty());
     }
 
     #[test]
